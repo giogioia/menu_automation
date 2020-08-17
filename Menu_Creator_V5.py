@@ -19,6 +19,7 @@ import json
 import datetime
 import sys
 import os
+import os.path
 import datetime
 from get_new_token import  *
 import multiprocessing
@@ -91,6 +92,19 @@ refresh()
 
 '''End Init'''
 
+'''Beginning custom part'''
+
+def find_excel_file_path(excel_name):
+    for root, dirs, files in os.walk(dir):
+        if excel_name in files:
+            for file in files:
+                if file == excel_name:
+                    print(f'{excel_name} found incurrent working directory')
+                    return os.path.join(root,file)
+    else:
+        #print('File not found in current working directory')
+        raise NameError
+                
 #pd.set_option('display.max_rows', None)
 #pd.reset_option('display.max_rows')
 '''set store'''
@@ -110,14 +124,45 @@ def set_storeid():
             continue
         store_name = r.json()['stores'][0]['name']
         print(f'\n{store_name} - {storeid} found in Admin')
-        confirm_menu = input(f"Menu of {store_name} - {storeid} will be updated using the data inside '{store_name}/{store_name}_menu.xlsx'\n\nContinue [yes]/[no]:\n").lower().strip()
-        if confirm_menu in ["yes","y","ye","si"]: 
-            logger.info(f"Updating menu of store {store_name} - {storeid}")
-            break
-    input_path = os.path.join(dir,f'Roadhouse/Roadhouse_menu.xlsx')
+        try:
+            store_name_path = find_excel_file_path(f'{store_name}_menu.xlsx')
+        except NameError:
+            print(f'Did not find {store_name} in {dir}')
+            plan_b()
+        else:
+            print('Found {store_name} in {dir}')
+            aorb = input(f"Update menu of {store_name} - {storeid} with:\n[A] - Data inside '{os.path.relpath(store_name_path)}'\n[B] - Other excel file\nPress 'A' or 'B' then press ENTER:\n").lower().strip()
+            if aorb in ["a","b"]: 
+                if aorb == "a": 
+                    logger.info(f"Updating menu of store {store_name} - {storeid} with {store_name_path}")
+                    input_path = store_name_path
+                    break
+                if aorb == "b":
+                    plan_b()       
 
+def plan_b():
+    global input_path
+    while True:
+        excel_name = input("Insert the complete Excel file name (eg: 'partner_menu.xlsx') to input")
+        try:
+            if not 'xlsx' in excel_name: excel_name = f'{excel_name}.xlsx'
+            excel_path = find_excel_file_path(excel_name)
+        except NameError:
+            print(f'Could not find {excel_name} in {dir}\nPlease try again')
+            continue
+        else:
+            confirm_path = input("Menu of {excel_name} - {storeid} will be updated with data in '{os.path.relpath(excel_path)}'\nConfirm [yes]/[no]:\n")
+            if confirm_path in ["yes","y","ye","si"]:
+                logger.info(f"Updating menu of store {store_name} - {storeid} with {excel_path}")
+                input_path = excel_path
+                break
+            else: 
+                print('Key not recognized, please start again')
+                continue
+
+                
 '''dataframe'''
-def import_df_attrib():
+def import_df_attrib(): 
     #import
     global data_attrib, group_list
     data_attrib = pd.read_excel(input_path, sheet_name = 'Add-Ons')
@@ -352,9 +397,3 @@ if __name__ == '__main__':
     print(f'\nMenu of store id {storeid} is created.\nTime elapsed: {(t1-t0).seconds} seconds')
 
     
-    
-
-
-
-
-

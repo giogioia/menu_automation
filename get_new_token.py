@@ -63,7 +63,7 @@ def first_login():
         global glovo_email
         glovo_email = input("Insert your glovo email:\n")
         global password
-        password = getpass("Insert your password: (PW will not be displayed. Type it and press ENTER\n")
+        password = getpass("Insert your password: (PW will not be displayed. Type it and press ENTER)\n")
         print(f"\nemail = {glovo_email}\npassword = {len(password)*'*'}\n")
         confirm = input("Confirm data? [yes]/[no]\n").lower().strip()
         if confirm in ["yes","y","ye","si"]:
