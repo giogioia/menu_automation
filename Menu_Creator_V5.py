@@ -143,12 +143,12 @@ def set_storeid():
 def plan_b():
     global input_path
     while True:
-        excel_name = input("Insert the complete Excel file name (eg: 'partner_menu.xlsx') to input")
+        excel_name = input("Insert the complete Excel file name (eg: 'partner_menu.xlsx') to input:\n")
         try:
             if not 'xlsx' in excel_name: excel_name = f'{excel_name}.xlsx'
             excel_path = find_excel_file_path(excel_name)
         except NameError:
-            print(f'Could not find {excel_name} in {dir}\nPlease try again')
+            print(f'Could not find {excel_name} in {dir}\nPlease try again\n')
             continue
         else:
             confirm_path = input("Menu of {excel_name} - {storeid} will be updated with data in '{os.path.relpath(excel_path)}'\nConfirm [yes]/[no]:\n")
@@ -157,7 +157,7 @@ def plan_b():
                 input_path = excel_path
                 break
             else: 
-                print('Key not recognized, please start again')
+                print('Key not recognized, please start again\n')
                 continue
 
                 
