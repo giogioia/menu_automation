@@ -99,7 +99,7 @@ def find_excel_file_path(excel_name):
         if excel_name in files:
             for file in files:
                 if file == excel_name:
-                    print(f'{excel_name} found incurrent working directory')
+                    print(f'\n{excel_name} found incurrent working directory')
                     return os.path.join(root,file)
     else:
         #print('File not found in current working directory')
@@ -118,20 +118,20 @@ def set_storeid():
         url = f'https://adminapi.glovoapp.com/admin/stores?limit=500&offset=0'
         r = requests.get(url, headers  = {'authorization' : access_token}, params = params)
         if r.ok is False: 
-            print("Store not on Admin. Please insert a valid Store Id")
+            print("\nStore not on Admin. Please insert a valid Store Id")
             nop += 1
             if nop > 1: print("If error repeats, close the program and start again")
             continue
         store_name = r.json()['stores'][0]['name']
-        print(f'\n{store_name} - {storeid} found in Admin')
+        print(f'\n{store_name} - {storeid} found in Glovo Admin!')
         try:
             store_name_path = find_excel_file_path(f'{store_name}_menu.xlsx')
         except NameError:
-            print(f'Did not find {store_name} in {dir}')
+            print(f'\nDid not find {store_name} in {dir}')
             plan_b()
         else:
-            print('Found {store_name} in {dir}')
-            aorb = input(f"Update menu of {store_name} - {storeid} with:\n[A] - Data inside '{os.path.relpath(store_name_path)}'\n[B] - Other excel file\nPress 'A' or 'B' then press ENTER:\n").lower().strip()
+            print('\nFound {store_name} in {dir}')
+            aorb = input(f"\nUpdate menu of {store_name} - {storeid} with:\n[A] - Data inside '{os.path.relpath(store_name_path)}'\n[B] - Other excel file\nPress 'A' or 'B' then press ENTER:\n").lower().strip()
             if aorb in ["a","b"]: 
                 if aorb == "a": 
                     logger.info(f"Updating menu of store {store_name} - {storeid} with {store_name_path}")
@@ -143,7 +143,7 @@ def set_storeid():
 def plan_b():
     global input_path
     while True:
-        excel_name = input("Insert the complete Excel file name (eg: 'partner_menu.xlsx') to input:\n")
+        excel_name = input("\nInsert the complete Excel file name (eg: 'partner_menu.xlsx') to input:\n")
         try:
             if not 'xlsx' in excel_name: excel_name = f'{excel_name}.xlsx'
             excel_path = find_excel_file_path(excel_name)
@@ -151,13 +151,13 @@ def plan_b():
             print(f'Could not find {excel_name} in {dir}\nPlease try again\n')
             continue
         else:
-            confirm_path = input("Menu of {excel_name} - {storeid} will be updated with data in '{os.path.relpath(excel_path)}'\nConfirm [yes]/[no]:\n")
+            confirm_path = input("\nMenu of {excel_name} - {storeid} will be updated with data in '{os.path.relpath(excel_path)}'\nConfirm [yes]/[no]:\n")
             if confirm_path in ["yes","y","ye","si"]:
                 logger.info(f"Updating menu of store {store_name} - {storeid} with {excel_path}")
                 input_path = excel_path
                 break
             else: 
-                print('Key not recognized, please start again\n')
+                print('\nKey not recognized, please start again\n')
                 continue
 
                 
