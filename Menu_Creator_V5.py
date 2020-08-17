@@ -187,6 +187,7 @@ def import_df_attrib():
     data_attrib.loc[:, 'Attrib_Id'] = ['' for _ in range(len(data_attrib))]
     #create new column  'Attrib_group_Id'
     data_attrib.loc[:, 'Attrib_group_Id'] = ['' for _ in range(len(data_attrib))]
+    print('Attributes imported')
 
 '''Stage1: Create attributes'''            
 #delete existing menu
@@ -200,8 +201,9 @@ def del_menu():
             
 def attrib_check(l,i):  
     #check if external id is duplicate
-    sku = int(data_attrib['Attribute ID'][i])
-    if data_attrib['Attribute ID'].value_counts()[sku] > 1:
+    sku = data_attrib['Attribute ID'][i]
+    repetition_check = data_attrib.loc[data_attrib['Attribute ID'] == sku,'Attribute ID'].value_counts().item()
+    if repetition_check > 1:
         findex = data_attrib.loc[data_attrib['Attribute ID']==sku].index[0]
         if findex < i:
             #data_attrib.at[i, 'Attrib_Id'] =  data_attrib.at[findex, 'Id']
@@ -236,7 +238,7 @@ def attrib_creation(l,i):
             print(f"{i}: PROBLEM -> id check - {j['id']} = {p.json()}")
             exit
     #change external id
-    attrib_details['externalId'] = str(int(data_attrib.at[i,'Attribute ID']))
+    attrib_details['externalId'] = str(data_attrib.at[i,'Attribute ID'])
     #put request
     url_put = f"https://adminapi.glovoapp.com/admin/attributes/{p.json()}"
     put = requests.put(url_put, headers = {'authorization' : access_token}, json = attrib_details)
@@ -291,7 +293,7 @@ def stage2():
         url = 'https://adminapi.glovoapp.com/admin/attribute_groups'
         payload = {
              "name": temp_df.at[0,'Add-On Name'],
-             "externalId": int(temp_df.at[0,'Add-On ID']),
+             "externalId": str(temp_df.at[0,'Add-On ID']),
              "min": str(temp_df.at[0,'Min Selection']),
              "max": str(temp_df.at[0,'Max Selection']),
              "collapsedByDefault": False,
@@ -378,7 +380,7 @@ def prod_creation(q):
                "imageServiceId": str(temp_df3_bis.at[q,'Image Ref']),
                "price": temp_df3_bis.at[q,'Product Price'],
                "topSellerCustomization": "AUTO",
-               "externalId": int(temp_df3_bis.at[q,'Product ID']),
+               "externalId": str(temp_df3_bis.at[q,'Product ID']),
                "enabled": bool(temp_df3_bis.at[q,'Active (TRUE/FALSE)'].astype('bool')),
                "sectionId": sectionId,
                "attributeGroupIds": temp_attributeGroupIds,
