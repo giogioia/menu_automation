@@ -110,7 +110,7 @@ def find_excel_file_path(excel_name):
 '''set store'''
 #set store
 def set_storeid():
-    global storeid, input_path
+    global storeid, input_path, store_name
     nop = 0
     while True:
         storeid = input("\nInsert the Store ID where to create the menu:\n")
@@ -123,14 +123,18 @@ def set_storeid():
             if nop > 1: print("If error repeats, close the program and start again")
             continue
         store_name = r.json()['stores'][0]['name']
+        time.sleep(0.5)
         print(f'\n{store_name} - {storeid} found in Glovo Admin!')
         try:
             store_name_path = find_excel_file_path(f'{store_name}_menu.xlsx')
         except NameError:
+            time.sleep(0.5)
             print(f'\nDid not find {store_name} in {dir}')
             plan_b()
+            break
         else:
-            print('\nFound {store_name} in {dir}')
+            time.sleep(0.5)
+            print(f'\nFound {store_name} in {dir}')
             aorb = input(f"\nUpdate menu of {store_name} - {storeid} with:\n[A] - Data inside '{os.path.relpath(store_name_path)}'\n[B] - Other excel file\nPress 'A' or 'B' then press ENTER:\n").lower().strip()
             if aorb in ["a","b"]: 
                 if aorb == "a": 
@@ -138,20 +142,24 @@ def set_storeid():
                     input_path = store_name_path
                     break
                 if aorb == "b":
-                    plan_b()       
+                    plan_b()
+                    break
 
 def plan_b():
     global input_path
     while True:
-        excel_name = input("\nInsert the complete Excel file name (eg: 'partner_menu.xlsx') to input:\n")
+        time.sleep(0.5)
+        excel_name = input("\nInsert the name of the Excel file to input(eg: 'partner_menu.xlsx'):\n")
         try:
             if not 'xlsx' in excel_name: excel_name = f'{excel_name}.xlsx'
             excel_path = find_excel_file_path(excel_name)
         except NameError:
-            print(f'Could not find {excel_name} in {dir}\nPlease try again\n')
+            time.sleep(0.5)
+            print(f'\nCould not find {excel_name} in {dir}\nPlease try again\n')
             continue
         else:
-            confirm_path = input("\nMenu of {excel_name} - {storeid} will be updated with data in '{os.path.relpath(excel_path)}'\nConfirm [yes]/[no]:\n")
+            time.sleep(0.5)
+            confirm_path = input(f"\nMenu of {store_name} - {storeid} will be updated with data in '{os.path.relpath(excel_path)}'\nConfirm [yes]/[no]:\n")
             if confirm_path in ["yes","y","ye","si"]:
                 logger.info(f"Updating menu of store {store_name} - {storeid} with {excel_path}")
                 input_path = excel_path
