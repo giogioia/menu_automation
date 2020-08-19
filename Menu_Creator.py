@@ -23,6 +23,7 @@ import os.path
 from get_new_token import  *
 import multiprocessing
 import numpy as np
+from tqdm import tqdm
 
 '''Init Functions'''
 #set path
@@ -94,7 +95,7 @@ refresh()
 '''Stage 0: Set target Admin store and input data'''
 #set store where to create menu on Admin
 def set_storeid():
-    global storeid, input_path, store_name, store_cityCode, excelName
+    global storeid, input_path, store_name, store_cityCode, excel_name
     nop = 0
     while True:
         storeid = input("\nInsert the Store ID where to create the menu:\n")
@@ -108,24 +109,24 @@ def set_storeid():
             continue
         store_name = r.json()['stores'][0]['name']
         store_cityCode = r.json()['stores'][0]['cityCode']
-        excelName = f'{store_name}_{store_cityCode}.xlsx'
+        excel_name = f'{store_name}_{store_cityCode}.xlsx'
         time.sleep(0.3)
         print(f'\n{store_name} - {store_cityCode} ({storeid}) found in Admin')
         try:
-            find_excel_file_path(excelName)
+            find_excel_file_path(excel_name)
         except NameError:
             time.sleep(0.5)
-            print(f'\nDid not find {excelName} in {dir}')
+            print(f'\nDid not find {excel_name} in {dir}')
             plan_b()
             break
         else:
             time.sleep(0.5)
-            print(f'\nFound {excelName} in {dir}')
-            aorb = input(f"\nUpdate menu of {store_name} - {store_cityCode} ({storeid}) with:\n[A] - Data inside '{excelName}'\n[B] - Other excel file\nPress 'A' or 'B' then press ENTER:\n").lower().strip()
+            print(f'\nFound {excel_name} in {dir}')
+            aorb = input(f"\nUpdate menu of {store_name} - {store_cityCode} ({storeid}) with:\n[A] - Data inside '{excel_name}'\n[B] - Other excel file\nPress 'A' or 'B' then press ENTER:\n").lower().strip()
             if aorb in ["a","b"]: 
                 if aorb == "a": 
-                    input_path = find_excel_file_path(excelName)
-                    logger.info(f"Updating menu of store {store_name} - {store_cityCode} ({storeid}) with {excelName}")
+                    input_path = find_excel_file_path(excel_name)
+                    logger.info(f"Updating menu of store {store_name} - {store_cityCode} ({storeid}) with {excel_name}")
                     break
                 if aorb == "b":
                     plan_b()
@@ -134,7 +135,7 @@ def set_storeid():
 #custom function for set_storeid(): 
 #user indicates the excel for data input
 def plan_b():
-    global input_path
+    global input_path, excel_name
     while True:
         time.sleep(0.5)
         excel_name = input("\nInsert the name of the Excel file to input(eg: 'Partner_MIL.xlsx'):\n")
@@ -149,7 +150,7 @@ def plan_b():
             time.sleep(0.5)
             confirm_path = input(f"\nMenu of {store_name} - {store_cityCode} ({storeid}) will be updated with data in '{os.path.relpath(excel_path)}'\nConfirm [yes]/[no]:\n")
             if confirm_path in ["yes","y","ye","si"]:
-                logger.info(f"Updating menu of store {store_name} - {store_cityCode} ({storeid}) with {excelName}")
+                logger.info(f"Updating menu of store {store_name} - {store_cityCode} ({storeid}) with {excel_name}")
                 input_path = excel_path
                 break
             else: 
@@ -177,7 +178,7 @@ def del_menu():
     if d.ok is True: print(f'Menu of store {storeid} deleted')
     else: print(d, d.contents)
 
-#Import add-ons sheet dataframe
+#Import 'add-ons' sheet dataframe
 def import_df_attrib(): 
     #import
     global data_attrib, group_list
@@ -185,9 +186,13 @@ def import_df_attrib():
     data_attrib.dropna(how='all', inplace = True)
     #getting list of attribute groups
     group_list = data_attrib.loc[:,'Add-On Name'].dropna().tolist()
-    #cleaning precios:
-    for _ in data_attrib['Price'].index:
-        if isinstance(data_attrib.at[_,'Price'],int) is False: data_attrib.at[_,'Price'] = 0    
+    #cleaning price:
+    for _ in data_attrib.index:
+        data_attrib.at[_,'Price'] = str(data_attrib.at[_,'Price']).replace(',','.')
+        try:
+            data_attrib.at[_,'Price'] = float(data_attrib.at[_,'Price'])
+        except ValueError:
+            data_attrib.at[_,'Price'] = 0              
     #reset index & do forward fill
     data_attrib.reset_index(drop = True, inplace = True)
     data_attrib.fillna(method = 'ffill', inplace = True)
@@ -197,11 +202,19 @@ def import_df_attrib():
     data_attrib.loc[:, 'Attrib_group_Id'] = ['' for _ in range(len(data_attrib))]
     print('\nAttributes imported')
 
+#custom function for import_df_attrib:
+#check is a string is a number
+def is_number(s):
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
 #stage1 function: 
 #launch attribute creation with multiprocessing
 def stage1():
     print('\nStage 1: Attributes creation')
-    global id_list
+    global id_list, data_attrib
     with multiprocessing.Manager() as manager:
         phantom_list = manager.list()
         for _ in data_attrib.index:
@@ -214,10 +227,18 @@ def stage1():
             processes.append(pro)
         for process in processes:
             process.join()
-        print(phantom_list)
-        id_list = [yup for yup in phantom_list]
+        #print(phantom_list)
+        id_list = list(phantom_list)
     data_attrib.loc[:, 'Attrib_Id'] = id_list
-
+    #fill empty Attrib_Id values
+    for ind_wouf in data_attrib.loc[:, 'Attrib_Id'].index:
+        wouf =  data_attrib.at[ind_wouf, 'Attrib_Id']
+        skusku = data_attrib.at[ind_wouf, 'Attribute ID']
+        if wouf == '' or pd.isna(wouf):
+            findex2 = data_attrib.loc[data_attrib['Attribute ID']== skusku].index[0]
+            data_attrib.at[ind_wouf, 'Attrib_Id'] =  data_attrib.at[findex2, 'Attrib_Id']
+    print(data_attrib.loc[:, 'Attrib_Id'])
+    
 #custom function for stage1(): 
 #check if duplicate attributes have been already created
 def attrib_check(phantom_list,i):  
@@ -227,9 +248,13 @@ def attrib_check(phantom_list,i):
     if repetition_check > 1:
         findex = data_attrib.loc[data_attrib['Attribute ID']==sku].index[0]
         if findex < i:
-            #data_attrib.at[i, 'Attrib_Id'] =  data_attrib.at[findex, 'Id']
-            phantom_list[i] =  phantom_list[findex]
-            print(f"{i} - external id already exist")
+            try:
+                #data_attrib.at[i, 'Attrib_Id'] =  data_attrib.at[findex, 'Id']
+                phantom_list[i] =  phantom_list[findex]
+            except Exception:
+                phantom_list[i] = np.nan
+            finally:
+                print(f"{i} - external id already exist")
         else: attrib_creation(phantom_list,i)
     else: attrib_creation(phantom_list,i)
     
@@ -351,7 +376,7 @@ def import_df_prod():
     asociados_list = []
     for _ in range(1,16):
         try: 
-            data_prod.loc[:,f'Question {_}']
+            data_prod.loc[:,f'Add-On {_}']
             asociados_list.append(_)
         except Exception:
             break
@@ -395,13 +420,14 @@ def stage3():
             print(temp_sectionId_list)
             zombie_sectionId_list = list(temp_sectionId_list)
         #arrange section positions
-        for secId in zombie_sectionId_list:
+        print('\nOrdering sections positions')
+        for secId in tqdm(zombie_sectionId_list):
             position = zombie_sectionId_list.index(secId)
             url = f'https://adminapi.glovoapp.com/admin/collectionsections/{secId}/changeCollection'
             payload = {"position" : position, "collectionId" : collectionId}
             put_pos = requests.put(url, headers = {'authorization':access_token}, json = payload)
             if put_pos.ok is False: print(f'Section {secId} PROBLEM when moved to P {position}')
-        print('Sections re-ordered')
+        print('Ordering sections positions completed')
         
 #Custom function for stage3():
 #creates sections
@@ -426,9 +452,9 @@ def prod_creation(q):
     #temp_attributeGroupExternalIds = []
     temp_attributeGroupNames = []
     for asociado in asociados_list:
-        if pd.isna(temp_df3_bis.loc[q,f'Question {asociado}']) is False:
-            #temp_attributeGroupExternalIds.append(str(temp_df3_bis.loc[q,f'Question {asociado}']))
-            temp_attributeGroupNames.append(str(temp_df3_bis.loc[q,f'Question {asociado}']))
+        if pd.isna(temp_df3_bis.loc[q,f'Add-On {asociado}']) is False:
+            #temp_attributeGroupExternalIds.append(str(temp_df3_bis.loc[q,f'Add-On {asociado}']))
+            temp_attributeGroupNames.append(str(temp_df3_bis.loc[q,f'Add-On {asociado}']))
     for yeezy in attrib_groups.json():
         #if yeezy['externalId'] in temp_attributeGroupExternalIds:
         if yeezy['name'] in temp_attributeGroupNames:
@@ -440,7 +466,7 @@ def prod_creation(q):
                "price": temp_df3_bis.at[q,'Product Price'],
                "topSellerCustomization": "AUTO",
                "externalId": str(temp_df3_bis.at[q,'Product ID']),
-               "enabled": bool(temp_df3_bis.at[q,'Active (TRUE/FALSE)'].astype('bool')),
+               "enabled": bool(temp_df3_bis.at[q,'Active'].astype('bool')),
                "sectionId": sectionId,
                "attributeGroupIds": temp_attributeGroupIds,
                "prices": [],
@@ -463,6 +489,4 @@ if __name__ == '__main__':
     import_df_prod()
     stage3()
     t1 = datetime.datetime.now()
-    print(f"\nMenu of store id {store_name} - {store_cityCode} ({storeid}) successfully created from '{excelName}' in {(t1-t0).seconds} seconds")
-
-    
+    print(f"\nMenu of store id {store_name} - {store_cityCode} ({storeid}) successfully created from '{excel_name}' in {(t1-t0).seconds} seconds")

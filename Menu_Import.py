@@ -16,6 +16,7 @@ import os
 from get_new_token import  *
 import multiprocessing
 import numpy as np
+from tqdm import tqdm
 
 bot_name = 'Menu_Creator'
 
@@ -87,7 +88,7 @@ def set_storeid():
     global storeid, store_name, store_cityCode, excelName
     nop = 0
     while True:
-        storeid = input("\nInsert the Store ID of the menu to import:\n")
+        storeid = input("\nInsert the Store ID of the menu to import:\n").strip()
         params = {'query' : storeid}
         url = f'https://adminapi.glovoapp.com/admin/stores?limit=100&offset=0'
         r = requests.get(url, headers  = {'authorization' : access_token}, params = params)
@@ -118,7 +119,8 @@ def part_one():
     r = requests.get(url, headers = {'authorization' : access_token})
     df_addons = pd.DataFrame(columns = ["Add-On Name","Min Selection","Max Selection", "Multiple Selection", "Add-On ID","Attribute","Price", "Attribute ID", "Active"])
     attrib_info = r.json()
-    for i in attrib_info:
+    print('Creating "Add-Ons" sheet')
+    for i in tqdm(attrib_info):
         for n in i['attributeDetails']:
             df_addons.loc[0 if pd.isnull(df_addons.index.max()) else df_addons.index.max() + 1] = [i['name'],i['min'],i['max'],i['multipleSelection'],i['externalId'],n['name'],n['priceImpact'],n['externalId'],n['enabled']]
     #clean duplicated values for readability
@@ -138,7 +140,8 @@ def id_dict_creation():
     r.headers
     r
     collection_js = r.json()
-    for collection in collection_js[0]['collections']:
+    print('Retrieving attributes external Ids')
+    for collection in (collection_js[0]['collections']):
         collectionId = collection['id']
         url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections/{collectionId}/sections'
         r = requests.get(url, headers = {'authorization' : access_token})
@@ -151,7 +154,7 @@ def id_dict_creation():
     with multiprocessing.Manager() as manager:
         phantom_dic = manager.dict()
         processes = []
-        for sbre in id_dict_list:
+        for sbre in tqdm(id_dict_list):
             pro = multiprocessing.Process(target = get_prod_externalId, args = (phantom_dic, sbre))
             pro.start()
             processes.append(pro)
@@ -170,8 +173,9 @@ def part_two():
     r
     collection_js = r.json()
     #collectionId_list = [_['id'] for _ in (collection_js[0]['collections'])]    
-    df_prods = pd.DataFrame(columns = ['Super Collection', 'Collection', 'Section', 'Product Name', 'Product Description',	'Product Price','Product ID', 'Question 1', 'Question 2', 'Question 3', 'Question 4','Question 5','Question 6','Question 7','Question 8','Question 9','Question 10','Question 11','Question 12','Question 13','Question 14','Question 15','Question 16','Active (TRUE/FALSE)','Image Ref'])
-    for collection in collection_js[0]['collections']:
+    df_prods = pd.DataFrame(columns = ['Super Collection', 'Collection', 'Section', 'Product Name', 'Product Description',	'Product Price','Product ID', 'Add-On 1', 'Add-On 2', 'Add-On 3', 'Add-On 4','Add-On 5','Add-On 6','Add-On 7','Add-On 8','Add-On 9','Add-On 10','Add-On 11','Add-On 12','Add-On 13','Add-On 14','Add-On 15','Add-On 16','Active','Image Ref'])
+    print('Creating "Products" sheet')
+    for collection in tqdm(collection_js[0]['collections']):
         collectionId = collection['id']
         url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections/{collectionId}/sections'
         r = requests.get(url, headers = {'authorization' : access_token})
@@ -180,7 +184,7 @@ def part_two():
             for prod in section['products']:
                 for _ in range(len(prod['attributeGroups'])-1,16):  
                     prod['attributeGroups'].append({'id': None, 'name': None})
-                df_prods.loc[0 if pd.isnull(df_prods.index.max()) else df_prods.index.max() + 1] = [np.nan,	 collection['name'], section['name'], prod['name'], prod['description'],prod['price'],id_dict.get(prod['id']), prod['attributeGroups'][0]['name'], prod['attributeGroups'][1]['name'], prod['attributeGroups'][2]['name'],prod['attributeGroups'][3]['name'],prod['attributeGroups'][4]['name'],prod['attributeGroups'][5]['name'],prod['attributeGroups'][6]['name'],prod['attributeGroups'][7]['name'],prod['attributeGroups'][8]['name'],prod['attributeGroups'][9]['name'],prod['attributeGroups'][10]['name'],prod['attributeGroups'][11]['name'],prod['attributeGroups'][12]['name'],prod['attributeGroups'][13]['name'],prod['attributeGroups'][14]['name'],prod['attributeGroups'][15]['name'],prod['enabled'],prod["image"]]                
+                df_prods.loc[0 if pd.isnull(df_prods.index.max()) else df_prods.index.max() + 1] = [np.nan,	 collection['name'].strip(), section['name'].strip(), prod['name'].strip(), prod['description'].strip(), prod['price'], id_dict.get(prod['id']), prod['attributeGroups'][0]['name'], prod['attributeGroups'][1]['name'], prod['attributeGroups'][2]['name'],prod['attributeGroups'][3]['name'],prod['attributeGroups'][4]['name'],prod['attributeGroups'][5]['name'],prod['attributeGroups'][6]['name'], prod['attributeGroups'][7]['name'], prod['attributeGroups'][8]['name'], prod['attributeGroups'][9]['name'], prod['attributeGroups'][10]['name'], prod['attributeGroups'][11]['name'], prod['attributeGroups'][12]['name'], prod['attributeGroups'][13]['name'],prod['attributeGroups'][14]['name'],prod['attributeGroups'][15]['name'],prod['enabled'],prod["image"]]                
     #clean all duplicated values for  readability
     df_prods.loc[df_prods.duplicated(subset = ['Super Collection','Collection']), ['Super Collection','Collection']] = np.nan
     #Delete empty columns
@@ -191,11 +195,31 @@ def part_two():
     
 def save_to_excel():
     #saving to excel part 1 & part 2
-    with pd.ExcelWriter(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx')) as writer:
-        df_prods.to_excel(writer, sheet_name = 'Products', index_label = 'Products Position')
-        df_addons.to_excel(writer, sheet_name = 'Add-Ons', index = False)
+    '''
+    dfs = {'Products': [df_prods, True, 'Index'], 'Add-Ons': [df_addons, False, None]}
+    writer = pd.ExcelWriter((os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx')), engine='xlsxwriter') 
+    for sheetname, dfinfo in dfs.items():
+        dfinfo[0].to_excel(writer, sheet_name = sheetname, index = dfinfo[1], index_label = dfinfo[2])
+        worksheet = writer.sheets[sheetname]
+        for idx, col in enumerate(dfinfo[0]):  # loop through all columns
+            series = dfinfo[0][col]
+            max_len = max((series.astype(str).map(len).max(), len(str(series.name)))) 
+            worksheet.set_column(idx, idx, max_len)
+    writer.save()
     print(f"\nSuccesfully saved to excel @{os.path.relpath(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx'))}\n")
-
+    '''
+    with pd.ExcelWriter(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx')) as writer:
+        df_prods.to_excel(writer, sheet_name = 'Products', index_label = 'Index')
+        writer.sheets['Products'].set_column('B:Z',15)
+        writer.sheets['Products'].set_column('D:D',20)
+        writer.sheets['Products'].set_column('E:E',70)
+        writer.sheets['Products'].set_column('M:M',27)
+        df_addons.to_excel(writer, sheet_name = 'Add-Ons', index = False)
+        writer.sheets['Add-Ons'].set_column('B:Z',15)
+        writer.sheets['Add-Ons'].set_column('A:A',25)
+        writer.sheets['Add-Ons'].set_column('F:F',50)
+    print(f"\nSuccesfully saved to excel @{os.path.relpath(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx'))}\n")
+    
 def download_images():
     global image_path, x
     #downloading images
@@ -204,16 +228,21 @@ def download_images():
     except Exception: pass
     image_path = os.path.join(output_path,'Images')
     processes = []
-    for nu in df_prods.index:
-        x +=1
-        process =  multiprocessing.Process(target = fire_download, args = [nu,x])
-        process.start()
-        processes.append(process)
-    for process_django in processes:
-        process_django.join()
-    print(f'\nImages folder of {store_name} updated')
+    with multiprocessing.Manager() as manager: 
+        l = manager.list()
+        print('Downloading images')
+        for nu in tqdm(df_prods.index):
+            x +=1
+            process =  multiprocessing.Process(target = fire_download, args = [nu,x,l])
+            process.start()
+            processes.append(process)
+        for process_django in processes:
+            process_django.join()
+        im_mod = list(l)
+    if len(im_mod) == 0: print(f'\nNo new image to dowload')
+    else: print(f'\nImages folder of {store_name} updated')
         
-def fire_download(nu,x):
+def fire_download(nu,x,l):
     _ = df_prods.at[nu,'Image Ref']
     ProductName = str(df_prods.at[nu,'Product Name'])
     if any(s in ProductName for s in ('/',',','-')):
@@ -226,6 +255,7 @@ def fire_download(nu,x):
         #print(f"Image {str(df_prods.at[nu,'Product Name'])}.jpg already exists")
         pass
     else:
+        l.append('_')
         ProductName = str(df_prods.at[nu,'Product Name'])
         url = f'http://res.cloudinary.com/glovoapp/image/upload/v1596612872/{_}.jpeg'
         r = requests.get(url)
