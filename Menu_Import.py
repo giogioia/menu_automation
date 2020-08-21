@@ -17,9 +17,12 @@ from get_new_token import  *
 import multiprocessing
 import numpy as np
 from tqdm import tqdm
+import json
 
-bot_name = 'Menu_Creator'
+bot_name = 'Menu_Import'
 
+'''Init Functions'''
+#set path
 def set_path():
     global dir, login_path, input_path
     #if sys has attribute _MEIPASS then script launched by bundled exe.
@@ -30,7 +33,8 @@ def set_path():
     #defining paths
     print(f'Working directory is {dir}')
     login_path = os.path.join(dir,'my_personal_token.py')
-    
+
+#check login credentials for api calls
 def login_check():
     #Check/get login data
     global glovo_email, password, refresh_token
@@ -46,8 +50,7 @@ def login_check():
     else:
         get_token()
 
-'''Logger'''
-#single logger, continously updating
+#enable Logger
 def logger_start():
     #log config
     logging.basicConfig(filename = "my_log.log", 
@@ -59,9 +62,9 @@ def logger_start():
     global logger
     logger = logging.getLogger()
     logger.info(f"Starting log for {bot_name}")
-    print("Logger started")
+    print("logger started")
 
-'''Get new access token with the refresh token''' 
+#get api access token
 def refresh():
     print(f"Token refreshed")
     exec(open(login_path).read())
@@ -72,40 +75,151 @@ def refresh():
     access_token = r.json()['accessToken']
     refresh_token = r.json()['refreshToken']
     expirance = r.json()['expiresIn']
-    headers = {'authorization' : access_token}
     logger.info('Access Token Refreshed')
 
 
-'''Intro'''
+'''Init Procedural code'''
 set_path()
 login_check()
 logger_start()
 refresh()
-''''''
 
-'''Set storeId'''
-def set_storeid():
-    global storeid, store_name, store_cityCode, excelName
-    nop = 0
+'''''''''''''''''''''''''''''End Init'''''''''''''''''''''''''''''
+
+'''''''''''''''''''''''''''Beginning bot'''''''''''''''''''''''''''
+
+'''stage 1: start()''' 
+#start() launches the bot according to the import mode set by set_import_mode()
+def start():
+    global partner
+    set_import_mode()
+    if import_mode == 'single':
+        main(partner)
+    elif import_mode == 'multiple':
+        stores_request()
+        conf = input('All the menu of the Store IDs above will be converted to excel\nContinue [yes]/[no]:\t').lower().strip()
+        if conf in ["yes","y","ye","si"]:
+            t0 = datetime.datetime.now()
+            for partner in df_admin['id']:
+                main(partner)
+            t1 = datetime.datetime.now()
+            print(f'All {store_name} Store IDs menu have been imported in {(t1-t0).seconds} seconds.')
+        else:
+            set_import_mode()
+    else:
+        print('Something went wrong')
+        sys.exit(0)
+
+#set_import_mode() sets the import mode based on user's input
+#if user enters a Store ID: import_mode = 'single'  for downloading only a single menu
+#if user enters a store name: import_mode = 'multiple' for downlaoding the menus of all the store IDs of the partner
+def set_import_mode():
+    global import_mode, partner
+    partner = input('\nInsert a Store ID or a Store Name for beginning import\n')
+    if partner.isdigit():
+        import_mode = 'single'
+    else:
+        import_mode = 'multiple'
+
+#stores_request() finds all the stores of a partner in a certain country
+def stores_request():
+    global df_admin, partner
+    get_cities()
+    #search stores on admin
+    errore = 0
     while True:
-        storeid = input("\nInsert the Store ID of the menu to import:\n").strip()
+        if errore == 1:
+            partner = input('Insert the Store Name to import:\n')
+        params = {'query' : partner}
+        url = f'https://adminapi.glovoapp.com/admin/stores?{cities}limit=500&offset=0'
+        r = requests.get(url, headers  = {'authorization' : access_token}, params = params)
+        if r.ok is False: 
+            print('There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
+            errore += 1
+        else:
+            list_raw = r.json()['stores']
+            json_raw = json.dumps(list_raw)
+            df_admin = pd.read_json(json_raw)
+            df_admin = df_admin[df_admin['name'] == partner].reset_index(drop = True)
+            print(df_admin[['name','cityCode','id']])
+            #confi =  input('All the menu of the store IDs above will be converted to excel.\nContinue [yes]/[no]:\t').lower().strip()
+            #if confi in ["yes","y","ye","si"]:
+                #break
+            break
+                
+#get_cities() makes a list of all cities of country
+#necessary for avoiding download menu of other countries when partner is in multiple countries            
+def get_cities():
+    global cities
+    while True:
+        country = input('Insert your country code (eg. IT, ES, AR):\n')
+        url = 'https://adminapi.glovoapp.com/admin/cities'
+        r = requests.get(url, headers = {'authorization' : access_token})
+        df_cities = pd.read_json(json.dumps(r.json()))
+        try:
+            json_list_country = df_cities.loc[df_cities['code']==country,['cities']].values.item()
+        except ValueError:
+            print('Country not found, please insert a valid country code')
+            continue
+        else: break
+    #parse json 
+    string = []
+    for i in json_list_country:
+        #print(i['code'])
+        string.append(f"cities={i['code']}&")
+    cities = ''.join(string)
+    
+'''Stage 2: main() '''
+#main() is the process for downloading a single store ID menu and convert it to an excel file
+def main(partner):
+    check_storeid(partner)
+    t0 = datetime.datetime.now()
+    create_output_dir()
+    part_one()
+    id_dict_creation()
+    part_two()
+    save_to_excel()
+    download_images()
+    t1 = datetime.datetime.now()
+    print(f"\n\nMenu of {store_name}-{store_cityCode} {(storeid)} successfully imported to Excel in {(t1-t0).seconds} seconds")
+
+#check store ID 
+def check_storeid(partner):
+    global storeid, store_name, store_cityCode, excel_name
+    ntrials = 0
+    while True:
+        if ntrials == 0:
+            storeid = partner
+        else: 
+            storeid = input("\nInsert the Store ID of the menu to import:\n").strip()
         params = {'query' : storeid}
         url = f'https://adminapi.glovoapp.com/admin/stores?limit=100&offset=0'
         r = requests.get(url, headers  = {'authorization' : access_token}, params = params)
         if r.ok is False: 
             print("Store not on Admin. Please insert a valid Store Id")
-            nop += 1
-            if nop > 1: print("If error repeats, close the program and start again")
-            continue
-        store_name = r.json()['stores'][0]['name']
-        store_cityCode = r.json()['stores'][0]['cityCode']
-        excelName = f'{store_name}_{store_cityCode}.xlsx'
-        print(f'\n{store_name} - {store_cityCode} ({storeid}) found in Admin')
-        confirm_menu = input(f"Menu of {store_name} - {store_cityCode} ({storeid}) will be will be imported and stored into '{excelName}'\n\nContinue [yes]/[no]:\n").lower().strip()
-        if confirm_menu in ["yes","y","ye","si"]: 
-            logger.info(f"Importing menu of store {store_name} - {store_cityCode} ({storeid})")
-            break
-
+            ntrials += 1
+            if ntrials > 1: print("If error repeats, consider closing the program and start again")
+        else:
+            try:
+                store_name = r.json()['stores'][0]['name']
+            except IndexError:
+                print(f'Problem while searching {storeid} on Admin.\nPlease try again')
+                ntrials += 1
+            else:
+                store_cityCode = r.json()['stores'][0]['cityCode']
+                excel_name = f'{store_name}_{store_cityCode}.xlsx'
+                print(f'\n{store_name} - {store_cityCode} ({storeid}) found in Admin')
+                if import_mode == 'single':
+                    confirm_menu = input(f"Menu of {store_name} - {store_cityCode} ({storeid}) will be imported and stored into '{excel_name}'\n\nContinue [yes]/[no]:\t").lower().strip()
+                    if confirm_menu in ["yes","y","ye","si"]: 
+                        logger.info(f"Importing menu of store {store_name} - {store_cityCode} ({storeid})")
+                        break
+                    else:
+                        ntrials += 1
+                else:
+                    print(f"Menu of {store_name} - {store_cityCode} ({storeid}) will be will be imported and stored into '{excel_name}'\n")
+                    break
+            
 def create_output_dir():
     global output_path
     output_path = os.path.join(dir, store_name)
@@ -266,15 +380,8 @@ def fire_download(nu,x,l):
             f.write(r.content)
             print(f"Image {ProductName}.jpg downloaded")
 
+'''''''''''''''''''''''''''''End Bot'''''''''''''''''''''''''''''
+
 if __name__ == '__main__':
-    set_storeid()
-    t0 = datetime.datetime.now()
-    create_output_dir()
-    part_one()
-    id_dict_creation()
-    part_two()
-    save_to_excel()
-    download_images()
-    t1 = datetime.datetime.now()
-    print(f"\n\nMenu of {store_name}-{store_cityCode} {(storeid)} successfully imported to Excel in {(t1-t0).seconds} seconds")
-        
+    start()        
+    

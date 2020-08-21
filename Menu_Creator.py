@@ -20,7 +20,7 @@ import datetime
 import sys
 import os
 import os.path
-from get_new_token import  *
+from get_new_token import *
 import multiprocessing
 import numpy as np
 from tqdm import tqdm
