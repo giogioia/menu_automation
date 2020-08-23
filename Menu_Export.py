@@ -22,7 +22,9 @@ from get_new_token import  *
 
 bot_name = 'Menu_Exporter'
 
+
 '''Init Functions'''
+#set path
 def set_path():
     global dir, login_path, input_path
     #if sys has attribute _MEIPASS then script launched by bundled exe.
@@ -34,6 +36,7 @@ def set_path():
     print(f'Working directory is {dir}')
     login_path = os.path.join(dir,'my_personal_token.py')
 
+#check login credentials for api calls
 def login_check():
     #Check/get login data
     global glovo_email, password, refresh_token
@@ -49,8 +52,7 @@ def login_check():
     else:
         get_token()
 
-'''Logger'''
-#single logger, continously updating
+#enable Logger
 def logger_start():
     #log config
     logging.basicConfig(filename = "my_log.log", 
@@ -64,7 +66,7 @@ def logger_start():
     logger.info(f"Starting log for {bot_name}")
     print("logger started")
 
-'''Get new access token with the refresh token''' 
+#get api access token
 def refresh():
     print(f"Token refreshed")
     exec(open(login_path).read())
@@ -75,8 +77,8 @@ def refresh():
     access_token = r.json()['accessToken']
     refresh_token = r.json()['refreshToken']
     expirance = r.json()['expiresIn']
-    headers = {'authorization' : access_token}
     logger.info('Access Token Refreshed')
+
 
 '''Init Procedural code'''
 set_path()
@@ -84,7 +86,7 @@ login_check()
 logger_start()
 refresh()
 
-'''End Init'''
+'''''''''''''''''''''''''''''End Init'''''''''''''''''''''''''''''
 
 '''Custome Functions'''
 #drop stores from dataframe

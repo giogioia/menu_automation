@@ -24,6 +24,7 @@ from get_new_token import *
 import multiprocessing
 import numpy as np
 from tqdm import tqdm
+from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 '''Init Functions'''
 #set path
@@ -91,7 +92,20 @@ refresh()
 '''''''''''''''''''''''''''''End Init'''''''''''''''''''''''''''''
 
 '''''''''''''''''''''''''''Beginning bot'''''''''''''''''''''''''''
-                
+'''Bot framework'''
+def start():
+    set_storeid()
+    t0 = datetime.datetime.now()
+    del_menu()
+    import_df_attrib()
+    stage1()
+    stage2()      
+    import_df_prod()
+    check_for_new_images_in_df()
+    stage3()
+    t1 = datetime.datetime.now()
+    print(f"\nMenu of store id {store_name} - {store_cityCode} ({storeid}) successfully created from '{excel_name}' in {(t1-t0).seconds} seconds")
+
 '''Stage 0: Set target Admin store and input data'''
 #set store where to create menu on Admin
 def set_storeid():
@@ -380,6 +394,124 @@ def import_df_prod():
             asociados_list.append(_)
         except Exception:
             break
+        
+########special functions for checking new pictures to upload with product creation########
+#check for new image to upload
+#walk in the image directory, get all image ref and cross check it with image ref column in excel.
+#if new image, upload it on and get metadata
+'''
+def check_for_new_images_in_df():
+    print('\nChecking for new images to upload..')
+    get_image_names()
+    uploaded = []
+    for im in data_prod.index:
+        im_ref = data_prod.at[im,'Image Ref']
+        if pd.isna(im_ref) is False:
+            if pd.isna(data_prod.at[im,'Image ID']):
+                if check_image_exists(im_ref):
+                    print(f'Found new image to upload: {im_ref}')
+                    upload_image(im, im_ref)
+                    uploaded.append(im_ref)
+    if len(uploaded) > 0:
+        print(f'Uploaded the following images:\n{uploaded}')
+    else:
+        print('No new images to upload')
+'''
+def check_for_new_images_in_df():
+    global listOfImages
+    print('\nChecking for new images to upload..')
+    get_image_names()
+    #uploading all new images with multiprocessing
+    with multiprocessing.Manager() as manager:
+        l_of_im = manager.list()
+        processes = []
+        for im in data_prod.index:
+            l_of_im.append('')
+        for im in data_prod.index:
+            pro = multiprocessing.Process(target = upload_image, args = [im, l_of_im])
+            pro.start()
+            processes.append(pro)
+        for process in processes:
+            process.join()
+        listOfImages = list(l_of_im)
+    #saving new image ID to dataframe
+    for im in data_prod.index:
+        im_ref = data_prod.at[im,'Image Ref']
+        if pd.isna(im_ref) is False:
+            if pd.isna(data_prod.at[im,'Image ID']):
+                if check_image_exists(im_ref):
+                    data_prod.at[im,'Image ID'] = listOfImages[im]
+    if len(listOfImages) == listOfImages.count(''):
+        print('No new images to upload')
+    else:
+        print(f'Uploaded {(len(listOfImages)-listOfImages.count(''))} new images')
+    
+def get_image_names():
+    global image_names, complete_names, im_dic
+    #print('Scanning {os.path.relpath(os.path.join(os.path.dirname(input_path),"Images"))} folder')
+    for root, dirs, files in os.walk(os.path.join(os.path.dirname(input_path),"Images")):
+        image_names = []
+        complete_names = []
+        for file in files:
+            if file[-3:] == 'jpg' or file[-3:] == 'png':
+                complete_names.append(file)
+                image_names.append(file[:-4])
+        im_dic = dict(zip(image_names, complete_names))
+
+def check_image_exists(im_ref):
+        if im_ref in image_names:
+            return True
+        else:
+            return False                    
+
+def upload_image(im, l_of_im):
+    if pd.isna(im_ref) is False:
+        if pd.isna(data_prod.at[im,'Image ID']):
+            if check_image_exists(im_ref):
+                im_name = im_dic.get(im_ref)
+                im_path = os.path.join(os.path.dirname(input_path),'Images',im_name)
+                url = 'https://api.cloudinary.com/v1_1/glovoapp/upload'
+                mp_encoder = MultipartEncoder(
+                    fields={'folder': 'Products',
+                            'upload_preset': 'arj9awzq',
+                            'source': 'uw',
+                            'api_key': None,
+                            'file': (os.path.relpath(im_path), open(os.path.relpath(im_path), 'rb'), 'text/plain')})
+                header = {'Content-Type': mp_encoder.content_type}
+                r = requests.post(url, data=mp_encoder, headers = header)
+                if r.ok is False:
+                    print('Houston, we have a problem')
+                else:
+                    #r.json()
+                    #data_prod.at[im,'Image ID'] = r.json()['public_id']
+                    l_of_im[im] = r.json()['public_id']
+                    print(f'Image {im_ref} uploaded')
+
+'''saving df back to excel with updated image ID:
+to be implemented later on based on AM feedbacks
+#saving df back to excel with updated image ID
+#only necessary if new image have been uploaded
+def save_to_excel():
+    #import existing df
+    data_prod_lite = pd.read_excel(input_path, sheet_name = 'Products')
+    data_prod_lite.dropna(how='all', inplace = True)
+    data_attrib_lite = pd.read_excel(input_path, sheet_name = 'Add-Ons')
+    data_attrib_lite.dropna(how='all', inplace = True)
+    #modify the 'Image ID' column
+    data_prod_lite.loc[:,'Image ID'] = data_prod.loc[:,'Image ID']
+    #save it back to excel
+    with pd.ExcelWriter(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx')) as writer:
+        data_prod.to_excel(writer, sheet_name = 'Products', index_label = 'Index')
+        writer.sheets['Products'].set_column('B:Z',20)
+        writer.sheets['Products'].set_column('D:D',25)
+        writer.sheets['Products'].set_column('E:E',70)
+        writer.sheets['Products'].set_column('H:Z',20)
+        df_addons.to_excel(writer, sheet_name = 'Add-Ons', index = False)
+        writer.sheets['Add-Ons'].set_column('B:Z',15)
+        writer.sheets['Add-Ons'].set_column('A:A',25)
+        writer.sheets['Add-Ons'].set_column('F:F',50)
+    print(f"\nSuccesfully saved to excel @{os.path.relpath(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx'))}\n")
+'''
 
 #Stage 3 function:
 #Creates products with multiprocessing
@@ -462,7 +594,7 @@ def prod_creation(q):
     url = 'https://adminapi.glovoapp.com/admin/products'
     payload = {"name": str(temp_df3_bis.at[q,'Product Name']),
                "description": str(temp_df3_bis.at[q,'Product Description']),
-               "imageServiceId": str(temp_df3_bis.at[q,'Image Ref']),
+               "imageServiceId": str(temp_df3_bis.at[q,'Image ID']),
                "price": temp_df3_bis.at[q,'Product Price'],
                "topSellerCustomization": "AUTO",
                "externalId": str(temp_df3_bis.at[q,'Product ID']),
@@ -480,13 +612,4 @@ def prod_creation(q):
 
 '''main_bot'''    
 if __name__ == '__main__':
-    t0 = datetime.datetime.now()
-    set_storeid()
-    del_menu()
-    import_df_attrib()
-    stage1()
-    stage2()      
-    import_df_prod()
-    stage3()
-    t1 = datetime.datetime.now()
-    print(f"\nMenu of store id {store_name} - {store_cityCode} ({storeid}) successfully created from '{excel_name}' in {(t1-t0).seconds} seconds")
+    start()
