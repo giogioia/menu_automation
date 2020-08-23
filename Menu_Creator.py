@@ -399,24 +399,6 @@ def import_df_prod():
 #check for new image to upload
 #walk in the image directory, get all image ref and cross check it with image ref column in excel.
 #if new image, upload it on and get metadata
-'''
-def check_for_new_images_in_df():
-    print('\nChecking for new images to upload..')
-    get_image_names()
-    uploaded = []
-    for im in data_prod.index:
-        im_ref = data_prod.at[im,'Image Ref']
-        if pd.isna(im_ref) is False:
-            if pd.isna(data_prod.at[im,'Image ID']):
-                if check_image_exists(im_ref):
-                    print(f'Found new image to upload: {im_ref}')
-                    upload_image(im, im_ref)
-                    uploaded.append(im_ref)
-    if len(uploaded) > 0:
-        print(f'Uploaded the following images:\n{uploaded}')
-    else:
-        print('No new images to upload')
-'''
 def check_for_new_images_in_df():
     global listOfImages
     print('\nChecking for new images to upload..')
@@ -444,8 +426,10 @@ def check_for_new_images_in_df():
     if len(listOfImages) == listOfImages.count(''):
         print('No new images to upload')
     else:
-        print(f'Uploaded {(len(listOfImages)-listOfImages.count(''))} new images')
-    
+        print(f"Uploaded {int(len(listOfImages))-int(listOfImages.count(''))} new images")
+        print(f'Saving new Image IDs to {input_path}')
+        save_to_excel()
+        
 def get_image_names():
     global image_names, complete_names, im_dic
     #print('Scanning {os.path.relpath(os.path.join(os.path.dirname(input_path),"Images"))} folder')
@@ -465,6 +449,7 @@ def check_image_exists(im_ref):
             return False                    
 
 def upload_image(im, l_of_im):
+    im_ref = data_prod.at[im,'Image Ref']
     if pd.isna(im_ref) is False:
         if pd.isna(data_prod.at[im,'Image ID']):
             if check_image_exists(im_ref):
@@ -487,9 +472,7 @@ def upload_image(im, l_of_im):
                     l_of_im[im] = r.json()['public_id']
                     print(f'Image {im_ref} uploaded')
 
-'''saving df back to excel with updated image ID:
-to be implemented later on based on AM feedbacks
-#saving df back to excel with updated image ID
+#saving df back to excel with updated image ID:
 #only necessary if new image have been uploaded
 def save_to_excel():
     #import existing df
@@ -500,18 +483,16 @@ def save_to_excel():
     #modify the 'Image ID' column
     data_prod_lite.loc[:,'Image ID'] = data_prod.loc[:,'Image ID']
     #save it back to excel
-    with pd.ExcelWriter(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx')) as writer:
-        data_prod.to_excel(writer, sheet_name = 'Products', index_label = 'Index')
+    with pd.ExcelWriter(input_path) as writer:
+        data_prod_lite.to_excel(writer, sheet_name = 'Products', index = False)
         writer.sheets['Products'].set_column('B:Z',20)
         writer.sheets['Products'].set_column('D:D',25)
         writer.sheets['Products'].set_column('E:E',70)
         writer.sheets['Products'].set_column('H:Z',20)
-        df_addons.to_excel(writer, sheet_name = 'Add-Ons', index = False)
+        data_attrib_lite.to_excel(writer, sheet_name = 'Add-Ons', index = False)
         writer.sheets['Add-Ons'].set_column('B:Z',15)
         writer.sheets['Add-Ons'].set_column('A:A',25)
-        writer.sheets['Add-Ons'].set_column('F:F',50)
-    print(f"\nSuccesfully saved to excel @{os.path.relpath(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx'))}\n")
-'''
+        writer.sheets['Add-Ons'].set_column('F:F',50)    
 
 #Stage 3 function:
 #Creates products with multiprocessing
