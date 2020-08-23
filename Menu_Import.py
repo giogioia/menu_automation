@@ -90,25 +90,6 @@ refresh()
 
 '''stage 1: start()''' 
 #start() launches the bot according to the import mode set by set_import_mode()
-def start():
-    global partner
-    set_import_mode()
-    if import_mode == 'single':
-        main(partner)
-    elif import_mode == 'multiple':
-        stores_request()
-        conf = input('All the menu of the Store IDs above will be converted to excel\nContinue [yes]/[no]:\t').lower().strip()
-        if conf in ["yes","y","ye","si"]:
-            t0 = datetime.datetime.now()
-            for partner in df_admin['id']:
-                main(partner)
-            t1 = datetime.datetime.now()
-            print(f'All {store_name} Store IDs menu have been imported in {(t1-t0).seconds} seconds.')
-        else:
-            set_import_mode()
-    else:
-        print('Something went wrong')
-        sys.exit(0)
 
 #set_import_mode() sets the import mode based on user's input
 #if user enters a Store ID: import_mode = 'single'  for downloading only a single menu
@@ -410,6 +391,26 @@ def image_name(ProductName):
 
 '''''''''''''''''''''''''''''End Bot'''''''''''''''''''''''''''''
 
-if __name__ == '__main__':
-    start()        
+#if __name__ == '__main__':
+#    start()        
     
+#launches the bot according to the import mode set by set_import_mode()
+if __name__ == '__main__':
+    global partner
+    set_import_mode()
+    if import_mode == 'single':
+        main(partner)
+    elif import_mode == 'multiple':
+        stores_request()
+        conf = input('All the menu of the Store IDs above will be converted to excel\nContinue [yes]/[no]:\t').lower().strip()
+        if conf in ["yes","y","ye","si"]:
+            t0 = datetime.datetime.now()
+            for partner in df_admin['id']:
+                main(partner)
+            t1 = datetime.datetime.now()
+            print(f'All {store_name} Store IDs menu have been imported in {(t1-t0).seconds} seconds.')
+        else:
+            set_import_mode()
+    else:
+        print('Something went wrong')
+        sys.exit(0)
