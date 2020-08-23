@@ -398,7 +398,7 @@ def fire_download(nu,x,l):
         ProductName = image_name(ProductName)
         with open(os.path.join(image_path,f"{ProductName}.jpg"), 'wb') as f:
             f.write(r.content)
-            print(f"Image {ProductName}.jpg downloaded")
+            #print(f"Image {ProductName}.jpg downloaded")
 
 def image_name(ProductName):
     if any(s in ProductName for s in ("/","'")):
