@@ -153,22 +153,23 @@ def get_cities():
 '''Stage 2: main() '''
 #main() is the process for downloading a single store ID menu and convert it to an excel file
 def main(partner):
-    global empty
-    empty = False
-    check_storeid(partner)
-    t0 = datetime.datetime.now()
-    check_if_empty()
-    if empty: 
-        pass
-    else:
-        create_output_dir()
-        part_one()
-        id_dict_creation()
-        part_two()
-        save_to_excel()
-        download_images()
-        t1 = datetime.datetime.now()
-        print(f"\n\nMenu of {store_name}-{store_cityCode} {(storeid)} successfully imported to Excel in {(t1-t0).seconds} seconds")
+    if __name__ == '__main__':
+        global empty
+        empty = False
+        check_storeid(partner)
+        t0 = datetime.datetime.now()
+        check_if_empty()
+        if empty: 
+            pass
+        else:
+            create_output_dir()
+            part_one()
+            id_dict_creation()
+            part_two()
+            save_to_excel()
+            download_images()
+            t1 = datetime.datetime.now()
+            print(f"\n\nMenu of {store_name}-{store_cityCode} {(storeid)} successfully imported to Excel in {(t1-t0).seconds} seconds")
 
 #check store ID 
 def check_storeid(partner):
