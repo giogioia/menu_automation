@@ -82,13 +82,6 @@ def refresh():
     expirance = r.json()['expiresIn']
     logger.info('Access Token Refreshed')
 
-
-'''Init Procedural code'''
-set_path()
-login_check()
-logger_start()
-refresh()
-
 '''''''''''''''''''''''''''''End Init'''''''''''''''''''''''''''''
 
 '''''''''''''''''''''''''''Beginning bot'''''''''''''''''''''''''''
@@ -593,4 +586,10 @@ def prod_creation(q):
 
 '''main_bot'''    
 if __name__ == '__main__':
+    '''Init Procedural code'''
+    set_path()
+    login_check()
+    logger_start()
+    refresh()
+    '''start bot'''
     start()
