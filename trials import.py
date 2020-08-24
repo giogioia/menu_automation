@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Aug 24 13:49:45 2020
+
+@author: GIO2
+"""
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -265,6 +272,26 @@ def id_dict_creation():
     print(id_dict_list)
     
 def prod_ids():
+    global id_dict_list
+    #step1: get the list of all product's id
+    url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections'
+    r = requests.get(url, headers = {'authorization' : access_token})
+    r.headers
+    r
+    collection_js = r.json()
+    print('Retrieving attributes external Ids')
+    for collection in (collection_js[0]['collections']):
+        collectionId = collection['id']
+        url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections/{collectionId}/sections'
+        r = requests.get(url, headers = {'authorization' : access_token})
+        section_js = r.json()
+        id_dict_list = []
+        for section in section_js:
+            for prod in section['products']:
+                id_dict_list.append(prod['id'])
+    print('id dict list ready')
+    print(id_dict_list)
+
     global id_dict
     #step2: launch multiprocessing for calling all product's api and  get every single external id
     with multiprocessing.Manager() as manager:
@@ -272,6 +299,7 @@ def prod_ids():
         processes = []
         for sbre in id_dict_list[:50]:
             pro = multiprocessing.Process(target = get_prod_externalId, args = (phantom_dic, sbre, access_token))
+            pro.daemon = True
             pro.start()
             processes.append(pro)
         for process in processes:
@@ -406,7 +434,7 @@ def main(partner):
     else:
         create_output_dir()
         part_one()
-        id_dict_creation()
+        #id_dict_creation()
         prod_ids()
         part_two()
         save_to_excel()
