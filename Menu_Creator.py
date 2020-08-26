@@ -85,20 +85,6 @@ def refresh():
 '''''''''''''''''''''''''''''End Init'''''''''''''''''''''''''''''
 
 '''''''''''''''''''''''''''Beginning bot'''''''''''''''''''''''''''
-'''Bot framework'''
-def start():
-    set_storeid()
-    t0 = datetime.datetime.now()
-    del_menu()
-    import_df_attrib()
-    stage1()
-    stage2()      
-    import_df_prod()
-    check_for_new_images_in_df()
-    stage3()
-    t1 = datetime.datetime.now()
-    print(f"\nMenu of store id {store_name} - {store_cityCode} ({storeid}) successfully created from '{excel_name}' in {(t1-t0).seconds} seconds")
-
 '''Stage 0: Set target Admin store and input data'''
 #set store where to create menu on Admin
 def set_storeid():
@@ -193,6 +179,8 @@ def import_df_attrib():
     data_attrib.dropna(how='all', inplace = True)
     #getting list of attribute groups
     group_list = data_attrib.loc[:,'Add-On Name'].dropna().tolist()
+    #strip dataframe
+    #data_attrib = data_attrib.apply(lambda x: x.strip() if isinstance(x, str) else x)   
     #cleaning price:
     for _ in data_attrib.index:
         data_attrib.at[_,'Price'] = str(data_attrib.at[_,'Price']).replace(',','.')
@@ -209,19 +197,12 @@ def import_df_attrib():
     data_attrib.loc[:, 'Attrib_group_Id'] = ['' for _ in range(len(data_attrib))]
     print('\nAttributes imported')
 
-#custom function for import_df_attrib:
-#check is a string is a number
-def is_number(s):
-    try:
-        float(s)
-        return True
-    except ValueError:
-        return False
 #stage1 function: 
 #launch attribute creation with multiprocessing
 def stage1():
     print('\nStage 1: Attributes creation')
     global id_list, data_attrib
+    #init multiprocess
     with multiprocessing.Manager() as manager:
         phantom_list = manager.list()
         for _ in data_attrib.index:
@@ -236,8 +217,9 @@ def stage1():
             process.join()
         #print(phantom_list)
         id_list = list(phantom_list)
+    #push fresh id_list to dataframe
     data_attrib.loc[:, 'Attrib_Id'] = id_list
-    #fill empty Attrib_Id values
+        #fill empty Attrib_Id values
     for ind_wouf in data_attrib.loc[:, 'Attrib_Id'].index:
         wouf =  data_attrib.at[ind_wouf, 'Attrib_Id']
         skusku = data_attrib.at[ind_wouf, 'Attribute ID']
@@ -371,6 +353,8 @@ def import_df_prod():
     global data_prod, asociados_list
     data_prod =  pd.read_excel(input_path, sheet_name = 'Products')
     data_prod.dropna(how='all', inplace = True)
+    #strip sections
+    data_prod['Section'] = data_prod['Section'].str.strip()
     #cleaning precios:
     for _ in data_prod['Product Price'].index:
         if isinstance(data_prod.at[_,'Product Price'],float) is False: data_prod.at[_,'Product Price'] = 0    
@@ -387,6 +371,8 @@ def import_df_prod():
             asociados_list.append(_)
         except Exception:
             break
+    #replace all nan with ''
+    data_prod = data_prod.fillna('')
         
 ########special functions for checking new pictures to upload with product creation########
 #check for new image to upload
@@ -413,7 +399,7 @@ def check_for_new_images_in_df():
     for im in data_prod.index:
         im_ref = data_prod.at[im,'Image Ref']
         if pd.isna(im_ref) is False:
-            if pd.isna(data_prod.at[im,'Image ID']):
+            if pd.isna(data_prod.at[im,'Image ID']) or data_prod.at[im,'Image ID'] == '':
                 if check_image_exists(im_ref):
                     data_prod.at[im,'Image ID'] = listOfImages[im]
     if len(listOfImages) == listOfImages.count(''):
@@ -444,7 +430,7 @@ def check_image_exists(im_ref):
 def upload_image(im, l_of_im):
     im_ref = data_prod.at[im,'Image Ref']
     if pd.isna(im_ref) is False:
-        if pd.isna(data_prod.at[im,'Image ID']):
+        if pd.isna(data_prod.at[im,'Image ID']) or data_prod.at[im,'Image ID'] == '' :
             if check_image_exists(im_ref):
                 im_name = im_dic.get(im_ref)
                 im_path = os.path.join(os.path.dirname(input_path),'Images',im_name)
@@ -551,27 +537,40 @@ def section_creation(n, temp_sectionId_list, temp_df3, collectionId, section):
     for q in temp_df3_bis.index[::-1]:
         prod_creation(q)
 
+def cleaned(value):
+    if value == None or value == np.nan or value == '' or value == 'nan':
+        return None
+    else:
+        return str(value)    
+
 #Custom function for stage3():
 #creates products
 def prod_creation(q):               
-    temp_attributeGroupIds = []
-    #temp_attributeGroupExternalIds = []
     temp_attributeGroupNames = []
+    #temp_attributeGroupExternalIds = []
     for asociado in asociados_list:
-        if pd.isna(temp_df3_bis.loc[q,f'Add-On {asociado}']) is False:
+        if pd.isna(temp_df3_bis.loc[q,f'Add-On {asociado}']) is False and temp_df3_bis.loc[q,f'Add-On {asociado}'] != '':
             #temp_attributeGroupExternalIds.append(str(temp_df3_bis.loc[q,f'Add-On {asociado}']))
             temp_attributeGroupNames.append(str(temp_df3_bis.loc[q,f'Add-On {asociado}']))
-    for yeezy in attrib_groups.json():
-        #if yeezy['externalId'] in temp_attributeGroupExternalIds:
-        if yeezy['name'] in temp_attributeGroupNames:
-            temp_attributeGroupIds.append(yeezy['id'])
+    #making attrib group list to add to products
+    if len(temp_attributeGroupNames) == 0: 
+        temp_attributeGroupIds = []
+    else:
+        temp_attributeGroupIds = ['' for _ in range(len(temp_attributeGroupNames))]    
+        for attrGroup in attrib_groups.json():
+            #if yeezy['externalId'] in temp_attributeGroupExternalIds:
+            if attrGroup['name'] in temp_attributeGroupNames:
+                n = temp_attributeGroupNames.index(attrGroup['name'])
+                #temp_attributeGroupIds.append(attrGroup['id'])
+                temp_attributeGroupIds[n] = attrGroup['id']
+            
     url = 'https://adminapi.glovoapp.com/admin/products'
-    payload = {"name": str(temp_df3_bis.at[q,'Product Name']),
-               "description": str(temp_df3_bis.at[q,'Product Description']),
-               "imageServiceId": str(temp_df3_bis.at[q,'Image ID']),
+    payload = {"name": cleaned(temp_df3_bis.at[q,'Product Name']),
+               "description": cleaned(temp_df3_bis.at[q,'Product Description']),
+               "imageServiceId": cleaned(temp_df3_bis.at[q,'Image ID']),
                "price": temp_df3_bis.at[q,'Product Price'],
                "topSellerCustomization": "AUTO",
-               "externalId": str(temp_df3_bis.at[q,'Product ID']),
+               "externalId": cleaned(temp_df3_bis.at[q,'Product ID']),
                "enabled": bool(temp_df3_bis.at[q,'Active'].astype('bool')),
                "sectionId": sectionId,
                "attributeGroupIds": temp_attributeGroupIds,
@@ -583,13 +582,28 @@ def prod_creation(q):
     else:
         print(f"NOT inserted product {temp_df3_bis.at[q,'Product Name']}: {post}-{post.content}")
         sys.exit(0)
+    
+'''Bot framework'''
+def start():
+    set_storeid()
+    t0 = datetime.datetime.now()
+    del_menu()
+    import_df_attrib()
+    stage1()
+    stage2()      
+    import_df_prod()
+    check_for_new_images_in_df()
+    stage3()
+    t1 = datetime.datetime.now()
+    print(f"\nMenu of store id {store_name} - {store_cityCode} ({storeid}) successfully created from '{excel_name}' in {(t1-t0).seconds} seconds")
 
-'''main_bot'''    
+'''''''''''''''''''''''''''''End Bot'''''''''''''''''''''''''''''
+'''launch'''    
 if __name__ == '__main__':
-    '''Init Procedural code'''
+    '''Initiation code'''
     set_path()
     login_check()
     logger_start()
     refresh()
-    '''start bot'''
+    '''Bot code'''
     start()
