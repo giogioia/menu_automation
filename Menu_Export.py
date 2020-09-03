@@ -22,7 +22,6 @@ from get_new_token import  *
 
 bot_name = 'Menu_Exporter'
 
-
 '''Init Functions'''
 #set path
 def set_path():
@@ -126,18 +125,23 @@ def stores_request():
     global partner, df_admin
     #search stores on admin
     partner = input('Insert the Store Name to import:\n')
-    params = {'query' : partner}
     url = f'https://adminapi.glovoapp.com/admin/stores?{cities}limit=500&offset=0'
+    params = {'query' : partner}
     r = requests.get(url, headers  = {'authorization' : access_token}, params = params)
-    r.content
-    r.json()
-    list_raw = r.json()['stores']
-    json_raw = json.dumps(list_raw)
-    df_admin = pd.read_json(json_raw)
-    df_admin = df_admin[df_admin['name'] == partner].reset_index(drop = True)
-    list(df_admin)        
-    print(df_admin[['name','cityCode','id']])
-
+    if r.ok is False:
+        print(f'There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
+    else:
+        try:
+            list_raw = r.json()['stores']
+            df_admin = pd.read_json(json.dumps(list_raw))
+            df_admin['name'] = df_admin['name'].str.strip()
+            df_admin = df_admin[df_admin['name'] == partner].reset_index(drop = True)
+        except KeyError:
+           print(f'There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
+           errore += 1
+        else:
+            print(df_admin[['name','cityCode','id']])
+                
 ''''''   
 def import_details():
     global store_to_import
@@ -191,7 +195,8 @@ def menu_requests():
     print(f'\nDone!\nSuccessfully exported {partner}-{store_to_import} to {len(df_admin.index)} stores in {(t1-t0).seconds} seconds')
 
 '''Procedural code'''
-get_cities()
-stores_request()
-import_details()
-menu_requests()
+if __name__ == '__main__':
+    get_cities()
+    stores_request()
+    import_details()
+    menu_requests()

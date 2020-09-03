@@ -18,6 +18,7 @@ import multiprocessing
 import numpy as np
 from tqdm import tqdm
 import json
+import string
 
 bot_name = 'Menu_Import'
 
@@ -150,11 +151,17 @@ def admin_stores_request():
                print(f'There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
                errore += 1
             else:
-                print(df_admin[['name','cityCode','id']])
-                confirm = input('All the menu of the Store IDs above will be converted to excel\nContinue [yes]/[no]:\t').lower().strip()
-                if confirm in ["yes","y","ye","si"]:
+                if df_admin.index.size < 1:
+                    print(f'Could not find any results for store {partner} on Admin.\nMake sure spelling is correct. (If problem persists, close bot and try again)')
                     errore += 1
-                
+                else:
+                    print(df_admin[['name','cityCode','id']])
+                    confirm = input('All the menu of the Store IDs above will be converted to excel\nContinue [yes]/[no]:\t').lower().strip()
+                    if confirm in ["yes","y","ye","si"]:
+                        break
+                    else:
+                        errore += 1
+
 '''Part 2: main() part & all relative functions'''
 #main() -> series of functions for importing one store id into an Excel file
 
@@ -178,7 +185,7 @@ def check_storeid(partner):
             ntrials += 1
         else:
             try:
-                store_name = r.json()['stores'][0]['name']
+                store_name = str(r.json()['stores'][0]['name']).strip()
             except IndexError:
                 print(f'Problem while searching {storeid} on Admin.\nPlease try again')
                 ntrials += 1
@@ -235,10 +242,17 @@ def add_ons_import():
         for i in tqdm(attrib_info):
             for n in i['attributeDetails']:
                 df_addons.loc[0 if pd.isnull(df_addons.index.max()) else df_addons.index.max() + 1] = [i['name'],i['min'],i['max'],i['multipleSelection'],i['externalId'],n['name'],n['priceImpact'],n['externalId'],n['enabled']]
-        #clean duplicated values for readability
+        ##clean dataframe
+        #remove duplicated values for readability purposes
         df_addons.loc[df_addons.duplicated(subset = ["Add-On Name"]), ["Add-On Name","Min Selection","Max Selection","Multiple Selection","Add-On ID"]] = None
+        #try format 'Add-On ID' & 'Attribute ID' columns as int
+        df_addons.loc[:,'Add-On ID'] = pd.to_numeric(df_addons.loc[:,'Add-On ID'], downcast= "integer", errors= "ignore")
+        df_addons.loc[:,'Attribute ID'] = pd.to_numeric(df_addons.loc[:,'Attribute ID'], downcast= "integer", errors= "ignore")
+        #format price as float
+        df_addons.loc[:,'Price'] = pd.to_numeric(df_addons.loc[:,'Price'], errors='coerce')
         #print(f"\nCreated Add-Ons sheet in Excel file '{store_name}_{store_cityCode}.xlsx'")
-
+        
+        
 #function5: retrieve product's external ID
 #custom for function6
 def get_prod_externalId(shared_dic, productID):
@@ -270,6 +284,7 @@ def id_dict_creation():
             for prod in section['products']:
                 id_dict_list.append(prod['id'])
     #step2: parse 'id_dict_list' (all products' IDs) to call each product's api and get each external id
+    '''
     #using linear procedure
     shared_dic = {}
     for productID in tqdm(id_dict_list):
@@ -289,19 +304,27 @@ def id_dict_creation():
             process.join()
         #print(shared_dic)
         id_dict = dict(shared_dic)
-    '''
+    
 #function7: return clean image name for 'Image Ref' column
 #custom for function8
 def image_name(ProductName, ImageID):
-    if ImageID == None or ImageID == np.nan or ImageID == '' or ImageID== 'nan':
-        return None
-    if any(s in ProductName for s in ("/","'")):
-        for sy in ("/","'"):
+    #if ImageID == None or ImageID == np.nan or ImageID == '' or ImageID== 'nan':
+        #return None --> not sure it's needed.. displaying image ref  even for non existing image might help when uploading new images
+    if any(s in ProductName for s in ("/","'"," ")):
+        for sy in ("/","'"," "):
             if sy in ProductName: 
                 return ProductName.replace(sy,'_')
     else:
         return ProductName
 
+#function7 bis: return link of image for 'Image ID' column
+#custom for function8
+def image_link(ImageID):
+    if ImageID == None or ImageID == np.nan or ImageID == '' or ImageID== 'nan':
+        return None
+    else:
+        return f'https://res.cloudinary.com/glovoapp/f_auto,q_auto/{ImageID}'
+    
 #function8: Create 'Products' sheet
 def prod_import():    
     global df_prods, prod
@@ -325,37 +348,67 @@ def prod_import():
                 for _ in range(len(prod['attributeGroups'])-1,16):  
                     prod['attributeGroups'].append({'id': None, 'name': None})
                 #fill in dataframe row by row
-                df_prods.loc[0 if pd.isnull(df_prods.index.max()) else df_prods.index.max() + 1] = [None, collection['name'].strip(), section['name'].strip(), prod['name'].strip(), prod['description'], prod['price'], id_dict.get(prod['id']), prod['attributeGroups'][0]['name'], prod['attributeGroups'][1]['name'], prod['attributeGroups'][2]['name'],prod['attributeGroups'][3]['name'],prod['attributeGroups'][4]['name'],prod['attributeGroups'][5]['name'],prod['attributeGroups'][6]['name'], prod['attributeGroups'][7]['name'], prod['attributeGroups'][8]['name'], prod['attributeGroups'][9]['name'], prod['attributeGroups'][10]['name'], prod['attributeGroups'][11]['name'], prod['attributeGroups'][12]['name'], prod['attributeGroups'][13]['name'],prod['attributeGroups'][14]['name'],prod['attributeGroups'][15]['name'],prod['enabled'], image_name(prod['name'].strip(), prod["image"]),prod["image"]]                
-    #clean all duplicated values for  readability in certain columns
-    df_prods.loc[df_prods.duplicated(subset = ['Super Collection','Collection']), ['Super Collection','Collection']] = np.nan
-    #Delete empty columns
-    df_prods.dropna(axis = 1, how = 'all', inplace = True)
+                df_prods.loc[0 if pd.isnull(df_prods.index.max()) else df_prods.index.max() + 1] = [None, collection['name'].strip(), section['name'].strip(), prod['name'].strip(), prod['description'], prod['price'], id_dict.get(prod['id']), prod['attributeGroups'][0]['name'], prod['attributeGroups'][1]['name'], prod['attributeGroups'][2]['name'],prod['attributeGroups'][3]['name'],prod['attributeGroups'][4]['name'],prod['attributeGroups'][5]['name'],prod['attributeGroups'][6]['name'], prod['attributeGroups'][7]['name'], prod['attributeGroups'][8]['name'], prod['attributeGroups'][9]['name'], prod['attributeGroups'][10]['name'], prod['attributeGroups'][11]['name'], prod['attributeGroups'][12]['name'], prod['attributeGroups'][13]['name'],prod['attributeGroups'][14]['name'],prod['attributeGroups'][15]['name'],prod['enabled'], image_name(prod['name'].strip(), prod["image"]),image_link(prod["image"])]                
+    ##clean dataframe
+    #clean all duplicated values for  readability in 'Super Collection' and 'Collection' columns
+    df_prods.loc[df_prods.duplicated(subset = ['Super Collection','Collection']), ['Super Collection','Collection']] = None
+    #try format 'Product ID' column as int
+    df_prods.loc[:,'Product ID'] = pd.to_numeric(df_prods.loc[:,'Product ID'], downcast= "integer", errors= "ignore")
+    #format Product Price column as float 
+    df_prods.loc[:,'Product Price'] = pd.to_numeric(df_prods.loc[:,'Product Price'], errors= "coerce")
     #replace 'nan' desription with actual nan
-    df_prods.loc[:,'Product Description'].replace('nan',None, inplace = True)
+    df_prods.loc[:,'Product Description'].replace('nan','', inplace = True)
+    #Delete Add-Ons empty columns
+    AddOn_columns = df_prods.columns[df_prods.columns.to_series().str.contains('Add-On')].to_list()
+    [df_prods.columns.get_loc(_) for _ in AddOn_columns]
+    AddOn_columns.append('Super Collection')
+    for col in AddOn_columns:
+        if df_prods[col].isnull().all(): df_prods.drop(columns = col, inplace = True)
     #print(f"\nCreated Products sheet in Excel file '{store_name}_{store_cityCode}.xlsx'")
+    list(df_prods)
+
+#function9bis: create alaphabet dictionary
+#custom for function9
+def create_alphadic():
+    global col_addons
+    clean_addons_col = df_prods.columns[df_prods.columns.to_series().str.contains('Add-On')].to_list()
+    number = []
+    for _ in range(len(string.ascii_uppercase)):
+        number.append(_)
+    alphadic = dict(zip(number,string.ascii_uppercase))
+    #for df_prods: 0 = B because of the index so we need to offset with +1
+    col_addons = [alphadic.get(df_prods.columns.get_loc(_)+1) for _ in clean_addons_col]
     
 #function9: save the created dataframe to excel
 def save_to_excel():
+    #create alphabet numeric dictionary to set data validation to Add-Ons columns
+    create_alphadic()
     #saving to excel add-ons sheet and products sheet
     with pd.ExcelWriter(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx')) as writer:
         df_prods.to_excel(writer, sheet_name = 'Products', index_label = 'Index')
         writer.sheets['Products'].set_column('B:Z',20)
-        writer.sheets['Products'].set_column('D:D',25)
+        writer.sheets['Products'].set_column('C:D',25)
         writer.sheets['Products'].set_column('E:E',70)
-        writer.sheets['Products'].set_column('H:Z',20)
+        writer.sheets['Products'].set_default_row(20)
+        try: writer.sheets['Products'].data_validation(f'{min(col_addons)}2:{max(col_addons)}1000',{"validate":"list","source":"='Add-Ons'!$A$2:$A$1000"})
+        except ValueError: pass
         df_addons.to_excel(writer, sheet_name = 'Add-Ons', index = False)
         writer.sheets['Add-Ons'].set_column('B:Z',15)
-        writer.sheets['Add-Ons'].set_column('A:A',25)
+        writer.sheets['Add-Ons'].set_column('A:A',30)
         writer.sheets['Add-Ons'].set_column('F:F',50)
+        writer.sheets['Add-Ons'].set_default_row(20)
+        writer.sheets['Add-Ons'].data_validation('A1:A500',{'validate':'custom','value':'=COUNTIF($A$1:$A$500,A1)=1'})
     print(f"\nSuccesfully saved to excel @{os.path.relpath(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx'))}\n")
     
 #function10: download single image
 #custom for function11
 def image_download(nu,l):
     ImRef = df_prods.at[nu,'Image Ref']
-    indexRef = df_prods.at[nu,'Image ID']
-    #pass if image reference is empy or image already present
+    ImID = df_prods.at[nu,'Image ID']
+    #pass if image reference is empty, Image ID is empty or image already present
     if ImRef == None or ImRef == np.nan or ImRef == '' or ImRef == 'nan':
+        pass
+    elif ImID == None or ImID == np.nan or ImID == '' or ImID == 'nan':
         pass
     elif os.path.isfile(os.path.join(image_path,f"{ImRef}.jpg")):
         #print(f"Image {str(df_prods.at[nu,'Product Name'])}.jpg already exists")
@@ -363,7 +416,7 @@ def image_download(nu,l):
     else:
         l.append('ImRef')
         #download images with requests @ image/upload/ on cloudinary
-        url = f'http://res.cloudinary.com/glovoapp/image/upload/v1596612872/{indexRef}.jpeg'
+        url = ImID
         r = requests.get(url)
         with open(os.path.join(image_path,f"{ImRef}.jpg"), 'wb') as f:
             f.write(r.content)
@@ -383,33 +436,36 @@ def check_images():
         print('Looking for images to download')
         try: 
             os.mkdir(os.path.join(output_path,'Images'))
-        except Exception: 
+        except FileExistsError: 
             pass
-        else:
+        finally:
             image_path = os.path.join(output_path,'Images')
+            
             #using linear code
+            l = []
             for nu in tqdm(df_prods.index):
                 image_download(nu,l)
             im_mod = l
             if len(im_mod) == 0: print(f'\nNo new image to dowload')
             else: print(f'\nImages folder of {store_name} updated')
-        
-        '''
-        #using multiprocessing -> accelarates process by 5x (crashes on Windows)
-        with multiprocessing.Manager() as manager: 
-            l = manager.list()
-            processes = []
-            for nu in tqdm(df_prods.index):
-                process =  multiprocessing.Process(target = image_download, args = [nu,l])
-                process.start()
-                processes.append(process)
-            for process_django in processes:
-                process_django.join()
-            im_mod = list(l)
-        if len(im_mod) == 0: print(f'\nNo new image to dowload')
-        else: print(f'\nImages folder of {store_name} updated')
-        '''           
-#main() is the process for downloading a single store ID menu and convert it to an excel file
+            
+            '''
+            #using multiprocessing -> accelarates process by 5x (crashes on Windows)
+            with multiprocessing.Manager() as manager: 
+                l = manager.list()
+                processes = []
+                for nu in tqdm(df_prods.index):
+                    process =  multiprocessing.Process(target = image_download, args = [nu,l])
+                    process.start()
+                    processes.append(process)
+                for process_django in processes:
+                    process_django.join()
+                im_mod = list(l)
+            if len(im_mod) == 0: print(f'\nNo new image to dowload')
+            else: print(f'\nImages folder of {store_name} updated')
+            '''
+               
+#function main(): dowload a single store ID menu and convert it to an excel file
 def main(partner):
     global empty
     empty = False
@@ -445,7 +501,7 @@ if __name__ == '__main__':
         admin_stores_request()
         for partner in df_admin['id']:
             main(partner)
-            print(f'All {store_name} Store IDs menu have been imported.')
+        print(f'All {store_name} Store IDs menu have been imported.')
     else:
         print('Something went wrong')
         sys.exit(0)
