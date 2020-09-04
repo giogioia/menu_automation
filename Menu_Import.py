@@ -14,11 +14,11 @@ import datetime
 import sys
 import os
 from get_new_token import  *
-import multiprocessing
 import numpy as np
 from tqdm import tqdm
 import json
 import string
+from multiprocessing import Manager, Pool, Process, cpu_count
 
 bot_name = 'Menu_Import'
 
@@ -261,6 +261,14 @@ def get_prod_externalId(shared_dic, productID):
     r_id = requests.get(url, headers = {'authorization':access_token})
     shared_dic[productID] = r_id.json()['externalId']
 
+#fucntion6bis: use (max -1) number of cpu cores: every CPU in use increases speed by 1x
+#custom for multiprocessing Pool ->  use all cpu cores - 1 to avoid freezing operating system
+def cores():
+    if cpu_count() <  2:
+        return 1
+    else:
+        return (cpu_count() - 1)
+
 #function6: create dictionary with products' iDs
 #as products external IDs can  not be retreive from product list, we need to call each products' api and get external its external id
 def id_dict_creation():
@@ -285,25 +293,37 @@ def id_dict_creation():
                 id_dict_list.append(prod['id'])
     #step2: parse 'id_dict_list' (all products' IDs) to call each product's api and get each external id
     '''
-    #using linear procedure
+    ###using linear procedure###
     shared_dic = {}
     for productID in tqdm(id_dict_list):
         get_prod_externalId(shared_dic, productID)
     id_dict = shared_dic
+    ###end linear procedure###
     
+    ###using multiprocessing Pool###
+    with Manager() as manager:
+        shared_dic = manager.dict()
+        pool = Pool()
+        for productID in tqdm(id_dict_list):
+            pool.apply_async(get_prod_externalId, args = (shared_dic, productID,))
+        pool.close()
+        pool.join()
+        id_dict = dict(shared_dic)
+    ###end multiprocessing Pool###  
     '''
-    #using multiprocessing
-    with multiprocessing.Manager() as manager:
+    ###using multiprocessing process###
+    with Manager() as manager:
         shared_dic = manager.dict()
         processes = []
         for productID in tqdm(id_dict_list):
-            pro = multiprocessing.Process(target = get_prod_externalId, args = (shared_dic, productID))
+            pro = Process(target = get_prod_externalId, args = (shared_dic, productID))
             pro.start()
             processes.append(pro)
         for process in processes:
             process.join()
         #print(shared_dic)
         id_dict = dict(shared_dic)
+    ###using multiprocessing process###
     
 #function7: return clean image name for 'Image Ref' column
 #custom for function8
@@ -337,13 +357,14 @@ def prod_import():
     df_prods = pd.DataFrame(columns = ['Super Collection', 'Collection', 'Section', 'Product Name', 'Product Description', 'Product Price','Product ID', 'Add-On 1', 'Add-On 2', 'Add-On 3', 'Add-On 4','Add-On 5','Add-On 6','Add-On 7','Add-On 8','Add-On 9','Add-On 10','Add-On 11','Add-On 12','Add-On 13','Add-On 14','Add-On 15','Add-On 16','Active', 'Image Ref','Image ID'])
     #top-down approach for getting all info structured: parsing collections > sections > products
     print('Creating "Products" sheet')
-    for collection in tqdm(collections):
+    for collection in collections:
         collectionId = collection['id']
         url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections/{collectionId}/sections'
         r = requests.get(url, headers = {'authorization' : access_token})
         sections = r.json()
         for section in sections:
-            for prod in section['products']:
+            print(f'Creating section {section["name"]}')
+            for prod in tqdm(section['products']):
                 #add 'None' values to empty 'Add-On's columns in case the products has fewer than 16 add ons
                 for _ in range(len(prod['attributeGroups'])-1,16):  
                     prod['attributeGroups'].append({'id': None, 'name': None})
@@ -411,7 +432,7 @@ def image_download(nu,l):
     elif ImID == None or ImID == np.nan or ImID == '' or ImID == 'nan':
         pass
     elif os.path.isfile(os.path.join(image_path,f"{ImRef}.jpg")):
-        #print(f"Image {str(df_prods.at[nu,'Product Name'])}.jpg already exists")
+        print(f"Image {str(df_prods.at[nu,'Product Name'])}.jpg already exists")
         pass
     else:
         l.append('ImRef')
@@ -420,7 +441,7 @@ def image_download(nu,l):
         r = requests.get(url)
         with open(os.path.join(image_path,f"{ImRef}.jpg"), 'wb') as f:
             f.write(r.content)
-            #print(f"Image {ProductName}.jpg downloaded")
+        print(f"Image {ImRef}.jpg downloaded")
 
 #function11: images checker
 def check_images():
@@ -440,31 +461,41 @@ def check_images():
             pass
         finally:
             image_path = os.path.join(output_path,'Images')
-            
-            #using linear code
+            '''
+            ###with linear code###
             l = []
             for nu in tqdm(df_prods.index):
                 image_download(nu,l)
             im_mod = l
-            if len(im_mod) == 0: print(f'\nNo new image to dowload')
-            else: print(f'\nImages folder of {store_name} updated')
-            
+            ###end linear code###
             '''
-            #using multiprocessing -> accelarates process by 5x (crashes on Windows)
-            with multiprocessing.Manager() as manager: 
+            ###with multiprocessing Pool###
+            with Manager() as manager:
+                l = manager.list()
+                pool = Pool(10)
+                for nu in df_prods.index:
+                    pool.apply_async(image_download, args = (nu,l,))
+                pool.close()
+                pool.join()
+                im_mod = list(l)
+            ###end multiprocessing Pool###   
+            '''
+            ###with multiprocessing### -> accelarates process by 5x (crashes on Windows)
+            with Manager() as manager: 
                 l = manager.list()
                 processes = []
                 for nu in tqdm(df_prods.index):
-                    process =  multiprocessing.Process(target = image_download, args = [nu,l])
+                    process =  Process(target = image_download, args = (nu,l))
                     process.start()
                     processes.append(process)
                 for process_django in processes:
                     process_django.join()
                 im_mod = list(l)
+            ###end multiprocessing###
+            
             if len(im_mod) == 0: print(f'\nNo new image to dowload')
             else: print(f'\nImages folder of {store_name} updated')
             '''
-               
 #function main(): dowload a single store ID menu and convert it to an excel file
 def main(partner):
     global empty

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Wed Jul 29 11:59:30 2020
-Last update on Wed Aug 19 12:06:58 2020
+Last update on Fri Sep 4 10:28:53 2020
 
 @author: giovanni.scognamiglio
 
@@ -20,11 +20,12 @@ import datetime
 import sys
 import os
 import os.path
-from get_new_token import *
-import multiprocessing
 import numpy as np
+import string
 from tqdm import tqdm
 from requests_toolbelt.multipart.encoder import MultipartEncoder
+from multiprocessing import Manager, Pool, Process, cpu_count
+from get_new_token import *
 
 '''Init functions'''
 #set path
@@ -226,8 +227,9 @@ def import_df_attrib():
         if pd.isna(data_attrib.at[_,'Add-On Name']) is False:
             data_attrib.at[_,'Add-On ID'] = pimp
             pimp += 1
-    #create new dataframe for save the above back to orignal excel
+    ###create new dataframe for save the above back to orignal excel###
     data_attrib_saveback = data_attrib.copy()
+    ###end new df copy###
     #getting list of attribute groups
     group_list = data_attrib.loc[:,'Add-On Name'].dropna().tolist()
     #forward fill
@@ -301,31 +303,45 @@ def attrib_check(shared_list,i):
 def attrib_creation():
     print('\nStage 1: Attributes creation')
     global data_attrib
-    
-    ###using linear code###
+    '''
+    ###with linear code###
     shared_list = []
     for _ in data_attrib.index:
         shared_list.append('')
     for i in data_attrib.index:
         attrib_check(shared_list, i)
     temp_id_list = shared_list
-        
+    ###end linear code###
     '''
-    ###using multiprocessing###
-    with multiprocessing.Manager() as manager:
+    ###with multiprocessing Pool###
+    with Manager() as manager:
+        shared_list = manager.list()
+        pool = Pool(10)
+        for _ in data_attrib.index:
+            shared_list.append("")
+        for i in data_attrib.index:
+            pool.apply_async(attrib_check, args = (shared_list, i))
+        pool.close()
+        pool.join()
+        temp_id_list = list(shared_list)
+    ###end multiprocessing Pool###
+    '''
+    ###with multiprocessing###
+    with Manager() as manager:
         shared_list = manager.list()
         for _ in data_attrib.index:
             shared_list.append("")
         processes = []
         for i in data_attrib.index:
             #launch multiprocessing
-            pro = multiprocessing.Process(target = attrib_check, args = (shared_list, i))
+            pro = Process(target = attrib_check, args = (shared_list, i))
             pro.start()
             processes.append(pro)
         for process in processes:
             process.join()
         #print(shared_list)
         temp_id_list = list(shared_list)
+    ###end multiprocessing###
     '''
     #push fresh temp_id_list to dataframe
     data_attrib.loc[:, 'Attrib_real_Id'] = temp_id_list
@@ -386,7 +402,7 @@ def attrib_group_creation():
     url_get = f'https://adminapi.glovoapp.com/admin/attributes?storeId={storeid}'
     r = requests.get(url_get, headers = {'authorization' : access_token})
     r_json = r.json()
-    
+    '''
     ###with linear###
     shared_list2 = ['' for _ in range(len(group_num))]
     for y in group_num:
@@ -394,7 +410,20 @@ def attrib_group_creation():
         attrib_group_creation_function(shared_list2, y, r_json, n)
         groupId_list = shared_list2
     ###end linear###
-    
+    '''
+    ###with multiprocessing Pool###
+    with Manager() as manager:
+        shared_list2 = manager.list()
+        pool = Pool(10)
+        for _ in group_num:
+            shared_list2.append("")
+        for y in group_num:
+            n = group_num.index(y)
+            pool.apply_async(attrib_group_creation_function, args = (shared_list2, y, r_json, n,))
+        pool.close()
+        pool.join()
+        groupId_list = list(shared_list2)
+    ###end multiprocessing Pool###
     '''
     ###with multiprocessing###
     with multiprocessing.Manager() as manager:
@@ -520,11 +549,26 @@ def images_upload():
     print('\nChecking for new images to upload..')
     get_image_names()
     #uploading new images
+    '''
     ###using linear code###
     l_of_im = ['' for _ in range(len(data_prod.index))]
     for im in data_prod.index:
         image_upload_function(im, l_of_im)
     listOfImages = l_of_im
+    ###end linear code###
+    '''
+    ###using nultiprocessing pool###
+    with Manager() as manager:
+        l_of_im = manager.list()
+        pool = Pool(10)
+        for im in data_prod.index:
+            l_of_im.append("")
+        for im in data_prod.index:
+            pool.apply_async(image_upload_function, args = (im, l_of_im,))
+        pool.close()
+        pool.join()
+        listOfImages = list(l_of_im)
+    ###end nultiprocessing pool###
     '''
     ###using multiprocessing###
     with multiprocessing.Manager() as manager:
@@ -539,6 +583,7 @@ def images_upload():
         for process in processes:
             process.join()
         listOfImages = list(l_of_im)
+    ###end multiprocessing###
     '''
     #saving new image ID to dataframe
     for im in data_prod.index:
@@ -546,13 +591,24 @@ def images_upload():
         if pd.isna(im_ref) is False or im_ref != '':
             if pd.isna(data_prod.at[im,'Image ID']) or data_prod.at[im,'Image ID'] == '' :
                 if check_image_exists(im_ref):
-                    data_prod.at[im,'Image ID'] = listOfImages[im]
+                    data_prod.at[im,'Image ID'] = f'https://res.cloudinary.com/glovoapp/f_auto,q_auto/{listOfImages[im]}'
     if len(listOfImages) == listOfImages.count(''):
         print('No new images to upload')
     else:
         print(f"Uploaded {int(len(listOfImages))-int(listOfImages.count(''))} new images")
         print(f'Saving new Image IDs to {input_path}')
         
+#function13bis: create alaphabet dictionary
+#custom for function9
+def create_alphadic():
+    global col_addons
+    clean_addons_col = data_prod_saveback.columns[data_prod_saveback.columns.to_series().str.contains('Add-On')].to_list()
+    number = []
+    for _ in range(len(string.ascii_uppercase)):
+        number.append(_)
+    alphadic = dict(zip(number,string.ascii_uppercase))
+    #for df_prods: 0 = B because of the index so we need to offset with +1
+    col_addons = [alphadic.get(data_prod_saveback.columns.get_loc(_)+1) for _ in clean_addons_col]
 
 #function13: saving df back to excel with updated image ID:
 #cleaned data and new IDs are pushed back to original Excel
@@ -564,19 +620,23 @@ def saveback_df():
     for _ in data_attrib_saveback.index:
         if data_attrib_saveback.loc[_,'Multiple Selection'] != '':
             data_attrib_saveback.loc[_,'Multiple Selection'] = bool((data_attrib_saveback.loc[_,'Multiple Selection']))
+    #create alphabet dictionary for matching columns to excel letter columns
+    create_alphadic()
     #save both saveback dataframes to original Excel
     with pd.ExcelWriter(input_path) as writer:
         data_prod_saveback.to_excel(writer, sheet_name = 'Products', index_label = 'Index')
         writer.sheets['Products'].set_column('B:Z',20)
-        writer.sheets['Products'].set_column('D:D',25)
+        writer.sheets['Products'].set_column('C:D',25)
         writer.sheets['Products'].set_column('E:E',70)
-        writer.sheets['Products'].set_column('H:Z',20)
         writer.sheets['Products'].set_default_row(20)
+        try: writer.sheets['Products'].data_validation(f'{min(col_addons)}2:{max(col_addons)}1000',{"validate":"list","source":"='Add-Ons'!$A$2:$A$1000"})
+        except ValueError: pass
         data_attrib_saveback.to_excel(writer, sheet_name = 'Add-Ons', index = False)
         writer.sheets['Add-Ons'].set_column('B:Z',15)
-        writer.sheets['Add-Ons'].set_column('A:A',25)
+        writer.sheets['Add-Ons'].set_column('A:A',30)
         writer.sheets['Add-Ons'].set_column('F:F',50)
         writer.sheets['Add-Ons'].set_default_row(20)
+        writer.sheets['Add-Ons'].data_validation('A1:A500',{'validate':'custom','value':'=COUNTIF($A$1:$A$500,A1)=1'})
     print(f"\nClean 'Products' & 'Add-Ons' sheets saved back to original Excel {excel_name}")
 
 ###Product creation -> functions 14,15,16,18###
@@ -676,14 +736,32 @@ def product_creation():
         else: print(f"NOT created collection {collection} -> {post}-{post.content}")
         #create sections
         section_list = list(dict.fromkeys(list(temp_df3.loc[:,'Section'].dropna())))
+        '''
         ###using linear code###
+        multipro = False
         shared_sectionId_list = ['' for _ in range(len(section_list))]
         for section in section_list:
             n = section_list.index(section)
             section_creation(n, shared_sectionId_list, temp_df3, collectionId, section)
-            
+        ###end linear code###
+        '''
+        ###using nultiprocessing pool###
+        multipro = True
+        with Manager() as manager:
+            shared_sectionId_list = manager.list()
+            pool = Pool(10)
+            for _ in range(len(section_list)):
+                shared_sectionId_list.append('')
+            for section in section_list:
+                n = section_list.index(section)
+                pool.apply_async(section_creation, args = (n, shared_sectionId_list, temp_df3, collectionId, section,))
+            pool.close()
+            pool.join()
+            zombie_sectionId_list = list(shared_sectionId_list)
+        ###end nultiprocessing pool###
         '''
         ###using multiprocessing###
+        multipro = True
         with multiprocessing.Manager() as manager:
             shared_sectionId_list = manager.list()
             for _ in range(len(section_list)):
@@ -698,17 +776,19 @@ def product_creation():
                process2.join()
             print(shared_sectionId_list)
             zombie_sectionId_list = list(shared_sectionId_list)
-        
-        #arrange section positions -> only needed if multiprocessing in use
-        print('\nOrdering sections positions')
-        for secId in tqdm(zombie_sectionId_list):
-            position = zombie_sectionId_list.index(secId)
-            url = f'https://adminapi.glovoapp.com/admin/collectionsections/{secId}/changeCollection'
-            payload = {"position" : position, "collectionId" : collectionId}
-            put_pos = requests.put(url, headers = {'authorization':access_token}, json = payload)
-            if put_pos.ok is False: print(f'Section {secId} PROBLEM when moved to P {position}')
-        print('Ordering sections positions completed')
+        ###using multiprocessing###
         '''
+        if multipro is True:
+            #arrange section positions -> only needed if multiprocessing in use
+            print('\nOrdering sections positions')
+            for secId in tqdm(zombie_sectionId_list):
+                position = zombie_sectionId_list.index(secId)
+                url = f'https://adminapi.glovoapp.com/admin/collectionsections/{secId}/changeCollection'
+                payload = {"position" : position, "collectionId" : collectionId}
+                put_pos = requests.put(url, headers = {'authorization':access_token}, json = payload)
+                if put_pos.ok is False: print(f'Section {secId} PROBLEM when moved to P {position}')
+            print('Ordering sections positions completed')
+        
 #function main(): create an entire from an Excel file
 def main():
     set_storeid()
