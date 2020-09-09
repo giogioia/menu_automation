@@ -6,10 +6,8 @@ Last update on Fri Sep 4 10:28:53 2020
 
 @author: giovanni.scognamiglio
 
-Object: menu creator with picture upload
+Object: Creating a menu on Admin getting data from a file Excel
 """
-
-bot_name = 'Menu_Creator'
 
 #modules
 import logging
@@ -26,76 +24,204 @@ from tqdm import tqdm
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 from multiprocessing import Manager, Pool, Process, cpu_count
 from get_new_token import *
+import shutil
+import json
+from colorama import Fore, Style
+
+bot_name = 'Menu Creator Bot'
 
 '''Init functions'''
-#set path
+#Step 1: set path
 def set_path():
-    #step1: find launch origin (bundled exe. or local dir)
-    global dir, login_path, input_path
+    #step1: find launch origin (bundled exe. or local cwd)
+    global cwd, login_path, input_path
     #if sys has attribute _MEIPASS then script launched by bundled exe.
     if getattr(sys, '_MEIPASS', False):
-        dir = os.path.dirname(os.path.dirname(sys._MEIPASS))
+        cwd = os.path.dirname(os.path.dirname(sys._MEIPASS))
     #else: script is launched locally
     else:
-        dir = os.getcwd()
+        cwd = os.getcwd()
     #step 2: defining paths
-    print(f'Working directory is {dir}')
-    login_path = os.path.join(dir,'my_personal_token.py')
+    #print(f'Working directory is {cwd}')
+    login_path = os.path.join(cwd,'my_personal_token.json')
 
-#check login credentials for api calls
-def login_check():
-    #Check/get login data: check if file 'my personal token exists' and read it to get login data.
-    global glovo_email, password, refresh_token
-    print("Checking login data")
-    if os.path.isfile(login_path):
-        with open(login_path) as f:
-            content = f.read()
-        if all(s in content for s in ("glovo_email", "password", "refresh_token")):
-            exec(open(login_path).read())
-            welcome_name = glovo_email[:glovo_email.find("@")].replace("."," ").title()
-            print(f"\n\nWelcome back {welcome_name}!")
-        else: get_token()
-    #if file does not exists: lauch file creation
-    else:
-        get_token()
-
-#enable Logger
+#Step 2: enable Logger
 def logger_start():
     #log config
-    logging.basicConfig(filename = "my_log.log", 
-                    level =  logging.INFO,
-                    format = "%(levelname)s %(asctime)s %(message)s",
-                    datefmt = '%m/%d/%Y %H:%M:%S',
-                    filemode = "a")
+    logging.basicConfig(filename = os.path.join(cwd,"my_log.log"), 
+                        level =  logging.INFO,
+                        format = "%(levelname)s %(asctime)s %(message)s",
+                        datefmt = '%m/%d/%Y %H:%M:%S',
+                        filemode = "a")
     #log start
     global logger
     logger = logging.getLogger()
     logger.info(f"Starting log for {bot_name}")
-    print("logger started")
+    #print("Logger started")
 
-#get api fresh access token
+#custom for Step 3: read credentials json
+def read_json():
+    global glovo_email, refresh_token, country
+    with open(login_path) as read_file:
+        content = json.load(read_file)
+    glovo_email = content['glovo_email']
+    refresh_token = content['refresh_token']
+    country = content['country']
+        
+#Step 3: check login credentials
+def login_check():
+    #Check/get login data: check if file 'my personal token' exists and read it to get login data.
+    global glovo_email, refresh_token
+    #print("Checking login data")
+    if os.path.isfile(login_path):
+        try:
+            read_json()
+        except Exception:
+            get_token()
+        else:
+            welcome_name = glovo_email[:glovo_email.find("@")].replace("."," ").title()
+            print(f"\nWelcome back {welcome_name}")
+    #if file does not exist: lauch file creation
+    else:
+        get_token()
+
+#Step 4: get fresh api access token
 def refresh():
-    print(f"Token refreshed")
-    #step 1: execute 'my personal token' file to get login variables (future version: use pickle module to save data and load data)
-    exec(open(login_path).read())
-    global refresh_token, access_token, expirance
-    #step 2: make request at /oauth/refresh
-    data = {'refreshToken' : refresh_token, 'grantType' : 'refresh_token'}
-    r = requests.post('https://adminapi.glovoapp.com/oauth/refresh', json = data)
-    print(r.ok)
-    access_token = r.json()['accessToken']
-    #refresh_token = r.json()['refreshToken']
-    #expirance = r.json()['expiresIn']
-    logger.info('Access Token Refreshed')
-
+    global oauth
+    read_json()
+    #step 2: make request at oauth/refresh
+    oauth_data = {'refreshToken' : refresh_token, 'grantType' : 'refresh_token'}
+    oauth_request = requests.post('https://adminapi.glovoapp.com/oauth/refresh', json = oauth_data)
+    #print(oauth_request.ok)
+    if oauth_request.ok:
+        access_token = oauth_request.json()['accessToken']
+        oauth = {'authorization' : access_token}
+        #print("Token refreshed")
+        logger.info('Access Token Refreshed')
+    else:
+        print(f"Token NOT refreshed -> {oauth_request.content}")
+        logger.info(f'Access Token NOT Refreshed -> {oauth_request.content}')
+        
+def print_bot_name():
+    print('\n' + Fore.RED + Style.BRIGHT + bot_name + Style.RESET_ALL + '\n')
+    
 '''''''''''''''''''''''''''''End Init'''''''''''''''''''''''''''''
 
 '''''''''''''''''''''''''''Beginning bot'''''''''''''''''''''''''''
+'''Part 0: Set creation mode'''
+#custom for stores_request(): get all cities for admin query related to AM's country
+def get_cities():
+    global  cities
+    while True:
+        #country = input('Insert your country code (eg. IT, ES, AR):\n').upper().strip() -> already in json credentials
+        url = 'https://adminapi.glovoapp.com/admin/cities'
+        r = requests.get(url, headers = oauth)
+        df_cities = pd.read_json(json.dumps(r.json()))
+        try:
+            json_list_country = df_cities.loc[df_cities['code']==country,['cities']].values.item()
+        except ValueError:
+            print('Country not found, please insert a valid country code')
+            continue
+        else: break
+    #parse json 
+    string = []
+    for i in json_list_country:
+        #print(i['code'])
+        string.append(f"cities={i['code']}&")
+    cities = ''.join(string)
+
+def check_query_input(partner):
+    global q_input
+    if partner.isdigit():
+        q_input = 'id'
+    else:
+        q_input = 'name'
+
+def set_mode_id():
+    global mode
+    mode = 'single'
+
+def set_mode_name():
+    global df_creator, mode
+    while True:
+        df_creator_copy = {}
+        choice = input('Insert the Store ID where to create the menu:\n').strip()
+        if ',' in choice: 
+            choice = choice.split(',')
+            l_choice = []
+            for c in choice:
+                try: l_choice.append(int(c))
+                except Exception: pass
+            if len(l_choice) == 0:
+                print('No results found for "{choice}", please try again')
+                continue
+            else:
+                mode = 'multiple'
+                df_creator_copy = df_creator.loc[df_creator.loc[:,'id'].isin(l_choice)]
+                if df_creator_copy.index.size < 1:
+                    print('No results found for "{choice}", please try again')
+                    continue
+                print(df_creator_copy)
+                print('\nThe bot will modify the above Store\'s menu:')
+        elif choice.isdigit():
+            mode = 'single'
+            df_creator_copy = df_creator.loc[df_creator.loc[:,'id'] == int(choice)]
+            print(df_creator_copy)
+            print('\nThe bot will modify the above Store\'s menu:')
+        elif choice.lower() == 'all':
+            mode = 'all'
+            print(df_creator_copy)
+            print('\nThe bot will modify ALL the Store\'s menu:')
+        else:
+            print('Unable to process "{choice}", please try again')
+            continue
+        conferma = input('Continue? [yes]/[no]\t')
+        if conferma in ['yes','ye','y','si']:
+            df_creator = df_creator_copy.copy()
+            break
+
+#show a dataframe of all the stores (AM can then copy the ID of the city he is interested in and proceed with the creation)
+def stores_request():
+    global df_creator
+    get_cities()
+    #search stores on admin
+    while True:
+        partner = input('Insert a Store Name or Store ID to create:\n').strip()
+        check_query_input(partner)
+        url = f'https://adminapi.glovoapp.com/admin/stores?{cities}limit=500&offset=0'
+        parameters = {'query' : partner}
+        r = requests.get(url, headers  = oauth, params = parameters)
+        if r.ok is False:
+            print(f'There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
+        else:
+            try:
+                list_raw = r.json()['stores']
+                df_admin = pd.read_json(json.dumps(list_raw))
+                df_admin.loc[:,'name'] = df_admin['name'].str.strip()
+                if q_input == 'name':
+                    df_admin = df_admin.loc[df_admin.loc[:,'name'] == partner].reset_index(drop = True)
+            except KeyError:
+               print(f'There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
+            else:
+                if df_admin.index.size < 1:
+                    print(f'Could not find any results for store {partner} on Admin.\n'
+                          f'Maybe you meant one of the following: \n{set(df_admin["name"].to_list())}\n')
+                else:
+                    df_creator = df_admin[['name','cityCode','id']]
+                    df_creator.rename({'cityCode':'city'}, axis = 1, inplace = True)
+                    #df_creator.loc[:,'status'] = ['' for _ in range(len(df_creator.index))]
+                    print(df_creator)
+                    if q_input == 'id':
+                        set_mode_id()
+                    else:
+                        set_mode_name()
+                    break
+        
 '''Part 1: Set target Admin store and input data'''
 #custom function for set_storeid(): find excel file in current working directory with os.walk
 def find_excel_file_path(excel_name):
-    #walk in dir -> return excel path or raise error
-    for root, dirs, files in os.walk(dir):
+    #walk in cwd -> return excel path or raise error
+    for root, dirs, files in os.walk(cwd):
         if excel_name in files:
             for file in files:
                 if file == excel_name:
@@ -110,13 +236,13 @@ def plan_b():
     global input_path, excel_name
     while True:
         time.sleep(0.5)
-        excel_name = input("\nInsert the name of the Excel file to input(eg: 'Partner_MIL.xlsx'):\n")
+        excel_name = input("\nInsert the name of the Excel file to input(eg: 'Partner_MIL.xlsx'):\n").strip()
         if not 'xlsx' in excel_name: excel_name = f'{excel_name}.xlsx'
         try:
             excel_path = find_excel_file_path(excel_name)
         except NameError:
             time.sleep(0.5)
-            print(f'\nCould not find {excel_name} in {dir}\nPlease try again\n')
+            print(f'\nCould not find {excel_name} in {cwd}\nPlease try again\n')
             continue
         else:
             time.sleep(0.5)
@@ -129,23 +255,33 @@ def plan_b():
                 print('\nKey not recognized, please start again\n')
                 continue
 
+def df_to_repository():
+    try: 
+        os.mkdir(os.path.join(os.path.dirname(input_path),'Repository'))
+    except FileExistsError: 
+        pass
+    finally:
+        shutil.copy(input_path,os.path.join(os.path.dirname(input_path),'Repository',f'{datetime.datetime.now().strftime("%d_%m_%Y")}_{excel_name}'))
+
 #let users set store where to create menu on Admin & verify if it exists on Admin
-def set_storeid():
+def set_storeid_unique(nassau):
     global storeid, input_path, store_name, store_cityCode, excel_name
     prova = 0
     while True:
-        storeid = input("\nInsert the Store ID where to create the menu:\n")
+        if prova != 0:
+            storeid = input("\nInsert the Store ID where to create the menu:\n").strip()
+        else: storeid = str(df_creator.at[nassau, 'id'])
         #check if store ID exists in Admin with request @ admin/stores?
         url = f'https://adminapi.glovoapp.com/admin/stores?limit=500&offset=0'
         params = {'query' : storeid}
-        r = requests.get(url, headers  = {'authorization' : access_token}, params = params)
+        r = requests.get(url, headers = oauth, params = params)
         if r.ok is False: 
             print("\nStore not on Admin. Please insert a valid Store Id")
             prova += 1
             if prova > 1: print("If error repeats, consider closing the program and start again")
             continue
         try:
-            store_name = r.json()['stores'][0]['name']
+            store_name = (r.json()['stores'][0]['name']).strip()
         except IndexError:
             print("\nStore not on Admin. Please insert a valid Store Id")
             prova += 1
@@ -154,36 +290,62 @@ def set_storeid():
         else:
             store_cityCode = r.json()['stores'][0]['cityCode']
             excel_name = f'{store_name}_{store_cityCode}.xlsx'
-            print(f'\n{store_name} - {store_cityCode} ({storeid}) found in Admin')
-        #check if excel_name exists in dir with find_excel_file_path()
-        #if excel not in dir -> user inserts manually the name of the file he wants to use as input file with planb()
+            #print(f'\n{store_name} - {store_cityCode} ({storeid}) found on Admin')
+            #check if excel_name exists in cwd with find_excel_file_path()
+            #if excel not in cwd -> user inserts manually the name of the file he wants to use as input file with planb()
+            try:
+                find_excel_file_path(excel_name)
+            except NameError:
+                time.sleep(0.5)
+                print(f'\nDid not find {excel_name} in {cwd}')
+                plan_b()
+                break
+            else:
+                time.sleep(0.5)
+                #print(f'\n{excel_name} found in {cwd}')
+                #if excel_name found in cwd -> user can choose input file: confirm excel_name or enter other file name with planb()
+                a_or_b = input(f"\nUpdate menu of {store_name} - {store_cityCode} ({storeid}) with:\n[A] - Data inside '{excel_name}'\n[B] - Other excel file\nPress 'A' or 'B' then press ENTER:\n").lower().strip()
+                if a_or_b in ["a","b"]: 
+                    if a_or_b == "a": 
+                        input_path = find_excel_file_path(excel_name)
+                        logger.info(f"Updating menu of store {store_name} - {store_cityCode} ({storeid}) with {excel_name}")
+                        break
+                    if a_or_b == "b":
+                        plan_b()
+                        break
+                    
+def set_storeid_all(nairobi):
+    global storeid, input_path, store_name, store_cityCode, excel_name
+    storeid = str(df_creator.at[nairobi, 'id'])
+    #check if store ID exists in Admin with request @ admin/stores?
+    url = f'https://adminapi.glovoapp.com/admin/stores?limit=500&offset=0'
+    params = {'query' : storeid}
+    r = requests.get(url, headers = oauth, params = params)
+    if r.ok is False: 
+        print("\nProblem with {storeid} -> Store not on Admin")
+    else:
         try:
-            find_excel_file_path(excel_name)
-        except NameError:
-            time.sleep(0.5)
-            print(f'\nDid not find {excel_name} in {dir}')
-            plan_b()
-            break
+            store_name = (r.json()['stores'][0]['name']).strip()
+        except IndexError:
+            print("\nProblem with {storeid} -> Store not on Admin")
         else:
-            time.sleep(0.5)
-            print(f'\n{excel_name} found in {dir}')
-            #if excel_name found in dir -> user can choose input file: confirm excel_name or enter other file name with planb()
-            a_or_b = input(f"\nUpdate menu of {store_name} - {store_cityCode} ({storeid}) with:\n[A] - Data inside '{excel_name}'\n[B] - Other excel file\nPress 'A' or 'B' then press ENTER:\n").lower().strip()
-            if a_or_b in ["a","b"]: 
-                if a_or_b == "a": 
-                    input_path = find_excel_file_path(excel_name)
-                    logger.info(f"Updating menu of store {store_name} - {store_cityCode} ({storeid}) with {excel_name}")
-                    break
-                if a_or_b == "b":
-                    plan_b()
-                    break
+            store_cityCode = r.json()['stores'][0]['cityCode']
+            excel_name = f'{store_name}_{store_cityCode}.xlsx'
+            #print(f'\n{store_name} - {store_cityCode} ({storeid}) found on Admin')
+            #check if excel_name exists in cwd with find_excel_file_path()
+            #IF EXCEL NOT IN CWD -> PASS (IGNORE)
+            try:
+                input_path = find_excel_file_path(excel_name)
+            except NameError:
+                print(f'\nCAUTION: Did not find {excel_name} in {cwd}\nStore {storeid}-{store_cityCode} NOT updated.')
+                df_creator.at[nairobi,'status'] = 'excel NOT found'
 
 '''Part 2: main() part & all relative functions'''
 
 #function1: delete existing menu
 def del_menu():
     url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/menu'
-    d = requests.delete(url, headers = {'authorization' : access_token})
+    d = requests.delete(url, headers = oauth)
     if d.ok is True: print(f'Menu of store {storeid} deleted')
     else: print(d, d.contents)
 
@@ -208,12 +370,11 @@ def import_df_attrib():
         except ValueError:
             data_attrib.at[_,'Price'] = 0              
     #cleaning column 'Active'
-    data_attrib.loc[:,'Active'].fillna(True)
-    data_attrib.loc[:,'Active'] = data_attrib.loc[:,'Active'].replace('',True)
+    data_attrib.loc[:,'Active'] = [False if _ is False else True for _ in range(len(data_attrib))]
     #over-write column 'Attribute ID': allocate int starting at 1000
     #If two attribs have same name & price, insert same attrib id
     attrib_n_price_list = [f"{data_attrib.at[_,'Attribute']}&{data_attrib.at[_,'Price']}" for _ in range(len(data_attrib.index))]
-    list_1000 = [_ for _ in range(1000,3000)]
+    list_1000 = [_ for _ in range(1000,2000)]
     for n in data_attrib.index:
         attrib_n_price = attrib_n_price_list[n]
         rambo_index = attrib_n_price_list.index(attrib_n_price)
@@ -252,7 +413,7 @@ def attrib_creation_function(shared_list,i):
                'priceImpact' : str(data_attrib.at[i,'Price']),
                'enabled' : bool(data_attrib.at[i,'Active'].astype('bool')),
                'selected' : False}
-    p = requests.post(url_post, headers = {'authorization' : access_token}, json = payload)
+    p = requests.post(url_post, headers = oauth, json = payload)
     if p.ok is False:
         print(f"{i}: post{p} - {data_attrib.at[i,'Attribute']} NOT created")
         print(p.content)
@@ -263,7 +424,7 @@ def attrib_creation_function(shared_list,i):
     ##step 2: get newly created attribute's details
     #get attrib details with request @ admin/attributes?storeId={storeid}
     url_get = f'https://adminapi.glovoapp.com/admin/attributes?storeId={storeid}'
-    r = requests.get(url_get, headers = {'authorization' : access_token})
+    r = requests.get(url_get, headers = oauth)
     for response in r.json():
         if response['id'] == real_attrib_id: 
             attrib_details = response
@@ -273,7 +434,7 @@ def attrib_creation_function(shared_list,i):
     attrib_details['externalId'] = str(data_attrib.at[i,'Attribute ID'])
     #put request @ admin/attributes/{real_attrib_id} for pushing new external id to admin
     url_put = f"https://adminapi.glovoapp.com/admin/attributes/{real_attrib_id}"
-    put = requests.put(url_put, headers = {'authorization' : access_token}, json = attrib_details)
+    put = requests.put(url_put, headers = oauth, json = attrib_details)
     if put.ok:
         print(f"Created Attribute {i} with ext.id {str(data_attrib.at[i,'Attribute ID'])}")
     else:
@@ -298,6 +459,14 @@ def attrib_check(shared_list,i):
         else: attrib_creation_function(shared_list,i)
     else: attrib_creation_function(shared_list,i)
 
+#fucntion5bis: use (max -1) number of cpu cores: every CPU in use increases speed by 1x
+#custom for multiprocessing Pool ->  use all cpu cores - 1 to avoid freezing operating system
+def cores():
+    if cpu_count() <  2:
+        return 1
+    else:
+        #return (cpu_count() - 1)
+        return 8
 #function5: attributes creation
 #parse through all the attributes and trigger function attrib_check()
 def attrib_creation():
@@ -316,7 +485,7 @@ def attrib_creation():
     ###with multiprocessing Pool###
     with Manager() as manager:
         shared_list = manager.list()
-        pool = Pool(10)
+        pool = Pool(cores())
         for _ in data_attrib.index:
             shared_list.append("")
         for i in data_attrib.index:
@@ -385,7 +554,7 @@ def attrib_group_creation_function(shared_list2, y, r_json, n):
              "storeId": storeid,
              "attributes": temp_df.loc[:,'Attrib_real_Id'].tolist()}
         #post request for attrib group creation
-        p_group = requests.post(url, headers = {'authorization' : access_token}, json = payload)
+        p_group = requests.post(url, headers = oauth, json = payload)
         shared_list2[n] = p_group.json()
         #data_attrib.loc[data_attrib['Add-On ID']==y,'Attrib_group_real_Id'] = p_group.json() -> using list instead
         if p_group.ok:
@@ -400,7 +569,7 @@ def attrib_group_creation():
     group_num = list(dict.fromkeys(list(data_attrib.loc[:,'Add-On ID'])))
     #get attrib details
     url_get = f'https://adminapi.glovoapp.com/admin/attributes?storeId={storeid}'
-    r = requests.get(url_get, headers = {'authorization' : access_token})
+    r = requests.get(url_get, headers = oauth)
     r_json = r.json()
     '''
     ###with linear###
@@ -414,7 +583,7 @@ def attrib_group_creation():
     ###with multiprocessing Pool###
     with Manager() as manager:
         shared_list2 = manager.list()
-        pool = Pool(10)
+        pool = Pool(cores())
         for _ in group_num:
             shared_list2.append("")
         for y in group_num:
@@ -460,8 +629,8 @@ def import_df_prod():
         data_prod.loc[:,col_name] = data_prod[col_name].str.strip()
         data_prod.loc[:,col_name] = data_prod[col_name].str.capitalize()
     #removing nan from column 'Product Description'  & 'Image ID' for clean upload
-    data_prod.loc[:,'Product Description'].fillna('')
-    data_prod.loc[:,'Image ID'].fillna('')
+    data_prod.loc[:,'Product Description'].fillna('', inplace = True)
+    data_prod.loc[:,'Image ID'].fillna('', inplace = True)
     #cleaning column 'Price':
     for _ in data_prod.index:
         data_prod.at[_,'Product Price'] = str(data_prod.at[_,'Product Price']).replace(',','.')
@@ -470,8 +639,7 @@ def import_df_prod():
         except ValueError:
             data_prod.at[_,'Product Price'] = 0  
     #cleaning column 'Active'
-    data_prod.loc[:,'Active'].fillna(True)
-    data_prod.loc[:,'Active'] = data_prod.loc[:,'Active'].replace('',True)
+    data_prod.loc[:,'Active'] = [False if _ is False else True for _ in range(len(data_prod))]
     #over-write column 'Product ID'
     for _ in data_prod.index:
         data_prod.at[_,'Product ID'] = _
@@ -560,7 +728,7 @@ def images_upload():
     ###using nultiprocessing pool###
     with Manager() as manager:
         l_of_im = manager.list()
-        pool = Pool(10)
+        pool = Pool(cores())
         for im in data_prod.index:
             l_of_im.append("")
         for im in data_prod.index:
@@ -614,7 +782,7 @@ def create_alphadic():
 #cleaned data and new IDs are pushed back to original Excel
 def saveback_df():
     #push new Image IDs values to saveback dataframe
-    data_prod_saveback.loc[:,'Image ID'] = data_prod.loc[:,'Image ID']
+    data_prod_saveback.loc[:,'Image ID'] = data_prod.loc[:,'Image ID'].copy()
     #clean column 'Multiple Selection': show data in in True/False bool type 
     data_attrib_saveback.loc[:,'Multiple Selection'].fillna('', inplace = True)
     for _ in data_attrib_saveback.index:
@@ -658,7 +826,15 @@ def imageServiceId_name(image_link, image_ref):
     else:
         #example: converts 'https://res.cloudinary.com/glovoapp/f_auto,q_auto/Products/tnondqzvqy2sthtzn6rj' into 'Products/tnondqzvqy2sthtzn6rj'
         return image_link[-(len(image_link)-image_link.rfind('/')+8):]
-    
+
+#function15bis: orders products after creating them as admin does not care of order of input
+def order_product(product_Id, sectionId, q):
+    order_url = f'https://adminapi.glovoapp.com/admin/products/{product_Id}/changeSection'
+    payload = {"sectionId":sectionId, "position":q}
+    order_put = requests.put(order_url, headers = oauth,json = payload)
+    if order_put.ok is False:
+        print(f'Ouch -> product not ordered: {order_put}-{order_put.content}')
+        
 #function15: creates products
 #Custom function for product_creation():
 def prod_creation_function(q, sectionId, temp_df3_bis):        
@@ -686,13 +862,15 @@ def prod_creation_function(q, sectionId, temp_df3_bis):
                "attributeGroupIds": temp_attributeGroupIds,
                "prices": [],
                "productTags": []}
-    post = requests.post(url, headers = {'authorization' : access_token}, json = payload)
-    if post.ok:
-        print(f"Inserted product {temp_df3_bis.at[q,'Product Name']}")
-    else:
+    post = requests.post(url, headers = oauth, json = payload)
+    if post.ok is False:
         print(f"NOT inserted product {temp_df3_bis.at[q,'Product Name']}: {post}-{post.content}")
         exit
-
+    else:
+        print(f"Inserted product {temp_df3_bis.at[q,'Product Name']}")
+        product_Id = post.json()
+        order_product(product_Id, sectionId, q)
+    
 #function16: create sections
 #Custom for function18
 def section_creation(n, shared_sectionId_list, temp_df3, collectionId, section):      
@@ -701,13 +879,13 @@ def section_creation(n, shared_sectionId_list, temp_df3, collectionId, section):
     #create section with request @ admin/collectionsections
     url = 'https://adminapi.glovoapp.com/admin/collectionsections'
     payload = {"name":section,"collectionId": collectionId,"enabled": True}
-    post = requests.post(url, headers = {'authorization' : access_token}, json = payload)
+    post = requests.post(url, headers = oauth, json = payload)
     if post.ok: print(f"Section {section} created")
     else: print(f"Section {section} post {post}-{post.content}")
     sectionId = post.json()
     shared_sectionId_list[n] = post.json()
     #once section is created: create products ([::-1] for order purposes)
-    for q in temp_df3_bis.index[::-1]:
+    for q in temp_df3_bis.index:
         prod_creation_function(q, sectionId, temp_df3_bis)
 
 #function18: create products 
@@ -716,7 +894,7 @@ def product_creation():
     print('\nStage 3: Product creation')
     #get attribute groups info & create dict with attrib groups names and attrib groups IDs
     url = f'https://adminapi.glovoapp.com/admin/attribute_groups?storeId={storeid}'
-    attrib_groups = requests.get(url, headers = {'authorization' : access_token})
+    attrib_groups = requests.get(url, headers = oauth)
     attrGroup_NameList = [attrGroup['name'] for attrGroup in attrib_groups.json()]
     attrGroup_IdList = [attrGroup['id'] for attrGroup in attrib_groups.json()]
     attrGroup_dict = dict(zip(attrGroup_NameList,attrGroup_IdList))
@@ -729,7 +907,7 @@ def product_creation():
         #create collection
         url = 'https://adminapi.glovoapp.com/admin/collections'
         payload = {"name": collection, "storeId": storeid}
-        post = requests.post(url, headers = {'authorization' : access_token}, json = payload)
+        post = requests.post(url, headers = oauth, json = payload)
         data_prod.loc[data_prod['Collection']==collection,'CollectionId'] = post.json()
         collectionId = post.json()
         if post.ok: print(f"Created collection {collection}")
@@ -749,7 +927,7 @@ def product_creation():
         multipro = True
         with Manager() as manager:
             shared_sectionId_list = manager.list()
-            pool = Pool(10)
+            pool = Pool(cores())
             for _ in range(len(section_list)):
                 shared_sectionId_list.append('')
             for section in section_list:
@@ -785,13 +963,13 @@ def product_creation():
                 position = zombie_sectionId_list.index(secId)
                 url = f'https://adminapi.glovoapp.com/admin/collectionsections/{secId}/changeCollection'
                 payload = {"position" : position, "collectionId" : collectionId}
-                put_pos = requests.put(url, headers = {'authorization':access_token}, json = payload)
+                put_pos = requests.put(url, headers = oauth, json = payload)
                 if put_pos.ok is False: print(f'Section {secId} PROBLEM when moved to P {position}')
             print('Ordering sections positions completed')
         
 #function main(): create an entire from an Excel file
-def main():
-    set_storeid()
+def main(niamey):
+    df_to_repository()
     t0 = datetime.datetime.now()
     del_menu()
     import_df_attrib()
@@ -803,14 +981,28 @@ def main():
     product_creation()
     t1 = datetime.datetime.now()
     print(f"\nMenu of store id {store_name} - {store_cityCode} ({storeid}) successfully created from '{excel_name}' in {(t1-t0).seconds} seconds")
-
+    df_creator.loc[niamey,'status'] = 'Created'
+    
 '''''''''''''''''''''''''''''End Bot'''''''''''''''''''''''''''''
 '''launch'''    
 if __name__ == '__main__':
     '''Initiation code'''
     set_path()
-    login_check()
     logger_start()
+    login_check()
     refresh()
+    print_bot_name()
     '''Bot code'''
-    main()
+    stores_request()
+    if mode == 'all':
+        for nairobi in df_creator.index:
+            set_storeid_all(nairobi)
+            main(nairobi)
+    else:
+        for nassau in df_creator.index:
+            set_storeid_unique(nassau)
+            main(nassau)
+    print(df_creator)
+    time.sleep(5)
+        
+        

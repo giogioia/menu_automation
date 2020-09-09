@@ -4,97 +4,108 @@
 Created on Mon Jul  6 23:11:19 2020
 
 @author: giovanni.scognamiglio
+
+Object: Exporting a menu of a Store ID to a list of others Store IDs
 """
 import logging
 import requests
-from threading import Timer
-import time
-import requests
-import threading
 import time
 import pandas as pd
 import json
 import datetime
-import  sys
+import sys
 import os
-import datetime
-from get_new_token import  *
+from get_new_token import *
+from colorama import Fore, Style
 
-bot_name = 'Menu_Exporter'
+bot_name = 'Menu Export Bot'
 
-'''Init Functions'''
-#set path
+'''Init functions'''
+#Step 1: set path
 def set_path():
-    global dir, login_path, input_path
+    #step1: find launch origin (bundled exe. or local cwd)
+    global cwd, login_path, input_path
     #if sys has attribute _MEIPASS then script launched by bundled exe.
     if getattr(sys, '_MEIPASS', False):
-        dir = os.path.dirname(os.path.dirname(sys._MEIPASS))
+        cwd = os.path.dirname(os.path.dirname(sys._MEIPASS))
+    #else: script is launched locally
     else:
-        dir = os.getcwd()
-    #defining paths
-    print(f'Working directory is {dir}')
-    login_path = os.path.join(dir,'my_personal_token.py')
+        cwd = os.getcwd()
+    #step 2: defining paths
+    #print(f'Working directory is {cwd}')
+    login_path = os.path.join(cwd,'my_personal_token.json')
 
-#check login credentials for api calls
-def login_check():
-    #Check/get login data
-    global glovo_email, password, refresh_token
-    print("Checking login data")
-    if os.path.isfile(login_path):
-        with open(login_path) as f:
-            content = f.read()
-        if all(s in content for s in ("glovo_email", "password", "refresh_token")):
-            exec(open(login_path).read())
-            welcome_name = glovo_email[:glovo_email.find("@")].replace("."," ").title()
-            print(f"\n\nWelcome back {welcome_name}!")
-        else: get_token()
-    else:
-        get_token()
-
-#enable Logger
+#Step 2: enable Logger
 def logger_start():
     #log config
-    logging.basicConfig(filename = "my_log.log", 
-                    level =  logging.INFO,
-                    format = "%(levelname)s %(asctime)s %(message)s",
-                    datefmt = '%m/%d/%Y %H:%M:%S',
-                    filemode = "a")
+    logging.basicConfig(filename = os.path.join(cwd,"my_log.log"), 
+                        level =  logging.INFO,
+                        format = "%(levelname)s %(asctime)s %(message)s",
+                        datefmt = '%m/%d/%Y %H:%M:%S',
+                        filemode = "a")
     #log start
     global logger
     logger = logging.getLogger()
     logger.info(f"Starting log for {bot_name}")
-    print("logger started")
+    #print("Logger started")
 
-#get api access token
+#custom for Step 3: read credentials json
+def read_json():
+    global glovo_email, refresh_token, country
+    with open(login_path) as read_file:
+        content = json.load(read_file)
+    glovo_email = content['glovo_email']
+    refresh_token = content['refresh_token']
+    country = content['country']
+        
+#Step 3: check login credentials
+def login_check():
+    #Check/get login data: check if file 'my personal token' exists and read it to get login data.
+    global glovo_email, refresh_token
+    #print("Checking login data")
+    if os.path.isfile(login_path):
+        try:
+            read_json()
+        except Exception:
+            get_token()
+        else:
+            welcome_name = glovo_email[:glovo_email.find("@")].replace("."," ").title()
+            print(f"\nWelcome back {welcome_name}")
+    #if file does not exist: lauch file creation
+    else:
+        get_token()
+
+#Step 4: get fresh api access token
 def refresh():
-    print(f"Token refreshed")
-    exec(open(login_path).read())
-    global refresh_token, access_token, expirance
-    data = {'refreshToken' : refresh_token, 'grantType' : 'refresh_token'}
-    r = requests.post('https://adminapi.glovoapp.com/oauth/refresh', json = data)
-    print(r.ok)
-    access_token = r.json()['accessToken']
-    refresh_token = r.json()['refreshToken']
-    expirance = r.json()['expiresIn']
-    logger.info('Access Token Refreshed')
-
-
-'''Init Procedural code'''
-set_path()
-login_check()
-logger_start()
-refresh()
-
+    global oauth
+    read_json()
+    #step 2: make request at oauth/refresh
+    oauth_data = {'refreshToken' : refresh_token, 'grantType' : 'refresh_token'}
+    oauth_request = requests.post('https://adminapi.glovoapp.com/oauth/refresh', json = oauth_data)
+    #print(oauth_request.ok)
+    if oauth_request.ok:
+        access_token = oauth_request.json()['accessToken']
+        oauth = {'authorization' : access_token}
+        #print("Token refreshed")
+        logger.info('Access Token Refreshed')
+    else:
+        print(f"Token NOT refreshed -> {oauth_request.content}")
+        logger.info(f'Access Token NOT Refreshed -> {oauth_request.content}')
+        
+def print_bot_name():
+    print('\nStarting ' + Fore.RED + Style.BRIGHT + bot_name + Style.RESET_ALL + '\n')
+    time.sleep(1)
 '''''''''''''''''''''''''''''End Init'''''''''''''''''''''''''''''
 
-'''Custome Functions'''
+'''''''''''''''''''''''''''Beginning bot'''''''''''''''''''''''''''
+'''Custom Functions'''
 #drop stores from dataframe
 def drop_store(store2drop):
     global django_index, df_admin
     try: 
         django_index = df_admin[df_admin['id'] == store2drop].index[0]
     except IndexError:
-        print('\nStore not in list')
+        print(f'\nStore {store2drop} not in list')
     else:
         df_admin = df_admin.drop(django_index).reset_index(drop = True)
         print(f'\n{store2drop} removed from target stores')
@@ -104,9 +115,9 @@ def drop_store(store2drop):
 def get_cities():
     global  cities
     while True:
-        country = input('Insert your country code (eg. IT, ES, AR):\n')
+        #country = input('Insert your country code (eg. IT, ES, AR):\n').upper().strip() -> already in json credentials
         url = 'https://adminapi.glovoapp.com/admin/cities'
-        r = requests.get(url, headers = {'authorization' : access_token})
+        r = requests.get(url, headers = oauth)
         df_cities = pd.read_json(json.dumps(r.json()))
         try:
             json_list_country = df_cities.loc[df_cities['code']==country,['cities']].values.item()
@@ -117,52 +128,60 @@ def get_cities():
     #parse json 
     string = []
     for i in json_list_country:
-        print(i['code'])
+        #print(i['code'])
         string.append(f"cities={i['code']}&")
     cities = ''.join(string)
     
 def stores_request():
     global partner, df_admin
     #search stores on admin
-    partner = input('Insert the Store Name to import:\n')
-    url = f'https://adminapi.glovoapp.com/admin/stores?{cities}limit=500&offset=0'
-    params = {'query' : partner}
-    r = requests.get(url, headers  = {'authorization' : access_token}, params = params)
-    if r.ok is False:
-        print(f'There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
-    else:
-        try:
-            list_raw = r.json()['stores']
-            df_admin = pd.read_json(json.dumps(list_raw))
-            df_admin['name'] = df_admin['name'].str.strip()
-            df_admin = df_admin[df_admin['name'] == partner].reset_index(drop = True)
-        except KeyError:
-           print(f'There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
-           errore += 1
+    while True:
+        partner = input('Insert the Store Name of the menu to export:\n')
+        url = f'https://adminapi.glovoapp.com/admin/stores?{cities}limit=500&offset=0'
+        parameters = {'query' : partner}
+        r = requests.get(url, headers  = oauth, params = parameters)
+        if r.ok is False:
+            print(f'There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
         else:
-            print(df_admin[['name','cityCode','id']])
+            try:
+                list_raw = r.json()['stores']
+                df_admin_raw = pd.read_json(json.dumps(list_raw))
+                df_admin_raw['name'] = df_admin_raw['name'].str.strip()
+                df_admin = df_admin_raw[df_admin_raw['name'] == partner].reset_index(drop = True)
+            except KeyError:
+               print(f'There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
+            else:
+                if df_admin.index.size < 1:
+                    print(f'Could not find any results for store {partner} on Admin.\nMake sure spelling is correct. (If problem persists, close bot and try again)')
+                else:
+                    print(df_admin[['name','cityCode','id']])
+                    break
                 
 ''''''   
 def import_details():
-    global store_to_import
+    global store_to_export
     #main    
-    store_to_import = int(input('Insert the Store ID of the store to import:\n'))
-    drop_store(store_to_import)
-    print(f'\n{partner} {store_to_import} will be imported to the following stores\n')
+    store_to_export = int(input('Insert the Store ID of the menu to export:\n'))
+    drop_store(store_to_export)
     print(df_admin[['name','cityCode','id']])
+    print(f'\n{partner} {store_to_export} will be exported to the stores above\n')
     while True:
-        exclude =  input('Insert any Store ID you would like to exclude? [If multiple values: separate them by comma. Leave blank if no store to exclude]\n')
+        exclude =  input('Insert any Store ID you would like to exclude? [If multiple values: separate them by comma. Leave blank if no Store ID to exclude]\n')
         if len(exclude) > 0: 
             if "," in exclude: 
                 exclude = exclude.split(",")
-                for s in exclude: drop_store(int(s))
-            else: drop_store(int(exclude))
+                for s in exclude: 
+                    try: drop_store(int(s))
+                    except Exception: pass
+            else: 
+                try: drop_store(int(exclude))
+                except Exception: print('No Store ID will be excluded')
         else:
             print('No Store ID will be excluded')
-        time.sleep(0.5)
-        print(f'\n{partner} {store_to_import} will be imported to the following stores')
+        time.sleep(1)
         print(df_admin[['name','cityCode','id']])
-        confirm = input('Confirm? [yes/no]\n')
+        print(f'\n{partner} {store_to_export} will be imported to the stores above')
+        confirm = input('Continue? [yes/no]\n')
         if confirm in ['yes','ye','y','si']: break
         else: continue
 
@@ -172,9 +191,8 @@ def menu_requests():
         i = df_admin['id'][j]
         url_menu = f'https://adminapi.glovoapp.com/admin/stores/{i}/menu'
         url_import = f'https://adminapi.glovoapp.com/admin/stores/{i}/import_menu'
-        headers  = {'authorization' : access_token}
-        data = {'storeIdToBeImported': store_to_import}
-        d = requests.delete(url_menu, headers = headers)
+        data = {'storeIdToBeImported': store_to_export}
+        d = requests.delete(url_menu, headers = oauth)
         if d.ok is True:
             print(f'menu {i} - deleted (d.ok is {d.ok})')
             logging.info(f'Menu {i} - deleted (d.ok = {d.ok})')
@@ -183,7 +201,7 @@ def menu_requests():
             logging.error(f'CAUTION: Store {i} - d.ok = {d.ok} - {d}')
             break
         time.sleep(0.1)
-        p = requests.post(url_import, headers = headers, json = data)
+        p = requests.post(url_import, headers = oauth, json = data)
         if p.ok is True:
             print(f'Menu {i} - posted (p.ok is {p.ok})')
             logging.info(f'Menu {i} - posted (p.ok is {p.ok})')
@@ -192,10 +210,14 @@ def menu_requests():
             logging.error(f'CAUTION: Menu {i} - p.ok = {p.ok} - {p}')
             break
     t1 = datetime.datetime.now()
-    print(f'\nDone!\nSuccessfully exported {partner}-{store_to_import} to {len(df_admin.index)} stores in {(t1-t0).seconds} seconds')
+    print(f'\nDone!\nSuccessfully exported {partner}-{store_to_export} to {len(df_admin.index)} stores in {(t1-t0).seconds} seconds')
 
 '''Procedural code'''
 if __name__ == '__main__':
+    set_path()
+    logger_start()
+    login_check()
+    refresh()
     get_cities()
     stores_request()
     import_details()

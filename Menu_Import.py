@@ -5,7 +5,7 @@ Created on Tue Aug 11 04:21:44 2020
 
 @author: giovanni.scognamiglio
 
-@Object: Menu importer as part of the Menu Creation package
+@Object: Importing a menu of a Store ID and storing data in a file Excel
 """
 import logging
 import requests
@@ -19,97 +19,96 @@ from tqdm import tqdm
 import json
 import string
 from multiprocessing import Manager, Pool, Process, cpu_count
+from colorama import Fore, Style
 
-bot_name = 'Menu_Import'
+bot_name = 'Menu Import Bot'
 
-'''Init Functions'''
-#set path
+'''Init functions'''
+#Step 1: set path
 def set_path():
-    #step1: find launch origin (bundled exe. or local dir)
-    global dir, login_path, input_path
+    #step1: find launch origin (bundled exe. or local cwd)
+    global cwd, login_path, input_path
     #if sys has attribute _MEIPASS then script launched by bundled exe.
     if getattr(sys, '_MEIPASS', False):
-        dir = os.path.dirname(os.path.dirname(sys._MEIPASS))
+        cwd = os.path.dirname(os.path.dirname(sys._MEIPASS))
     #else: script is launched locally
     else:
-        dir = os.getcwd()
+        cwd = os.getcwd()
     #step 2: defining paths
-    print(f'Working directory is {dir}')
-    login_path = os.path.join(dir,'my_personal_token.py')
+    #print(f'Working directory is {cwd}')
+    login_path = os.path.join(cwd,'my_personal_token.json')
 
-#check login credentials for api calls
-def login_check():
-    #Check/get login data: check if file 'my personal token exists' and read it to get login data.
-    global glovo_email, password, refresh_token
-    print("Checking login data")
-    if os.path.isfile(login_path):
-        with open(login_path) as f:
-            content = f.read()
-        if all(s in content for s in ("glovo_email", "password", "refresh_token")):
-            exec(open(login_path).read())
-            welcome_name = glovo_email[:glovo_email.find("@")].replace("."," ").title()
-            print(f"\n\nWelcome back {welcome_name}!")
-        else: get_token()
-    #if file does not exists: lauch file creation
-    else:
-        get_token()
-
-#enable Logger
+#Step 2: enable Logger
 def logger_start():
     #log config
-    logging.basicConfig(filename = "my_log.log", 
-                    level =  logging.INFO,
-                    format = "%(levelname)s %(asctime)s %(message)s",
-                    datefmt = '%m/%d/%Y %H:%M:%S',
-                    filemode = "a")
+    logging.basicConfig(filename = os.path.join(cwd,"my_log.log"), 
+                        level =  logging.INFO,
+                        format = "%(levelname)s %(asctime)s %(message)s",
+                        datefmt = '%m/%d/%Y %H:%M:%S',
+                        filemode = "a")
     #log start
     global logger
     logger = logging.getLogger()
     logger.info(f"Starting log for {bot_name}")
-    print("logger started")
+    #print("Logger started")
 
-#get api fresh access token
+#custom for Step 3: read credentials json
+def read_json():
+    global glovo_email, refresh_token, country
+    with open(login_path) as read_file:
+        content = json.load(read_file)
+    glovo_email = content['glovo_email']
+    refresh_token = content['refresh_token']
+    country = content['country']
+        
+#Step 3: check login credentials
+def login_check():
+    #Check/get login data: check if file 'my personal token' exists and read it to get login data.
+    global glovo_email, refresh_token
+    #print("Checking login data")
+    if os.path.isfile(login_path):
+        try:
+            read_json()
+        except Exception:
+            get_token()
+        else:
+            welcome_name = glovo_email[:glovo_email.find("@")].replace("."," ").title()
+            print(f"\nWelcome back {welcome_name}")
+    #if file does not exist: lauch file creation
+    else:
+        get_token()
+
+#Step 4: get fresh api access token
 def refresh():
-    print(f"Token refreshed")
-    #step 1: execute 'my personal token' file to get login variables (future version: use pickle module to save data and load data)
-    exec(open(login_path).read())
-    global refresh_token, access_token, expirance
-    #step 2: make request at /oauth/refresh
-    data = {'refreshToken' : refresh_token, 'grantType' : 'refresh_token'}
-    r = requests.post('https://adminapi.glovoapp.com/oauth/refresh', json = data)
-    print(r.ok)
-    access_token = r.json()['accessToken']
-    #refresh_token = r.json()['refreshToken']
-    #expirance = r.json()['expiresIn']
-    logger.info('Access Token Refreshed')
-
+    global oauth
+    read_json()
+    #step 2: make request at oauth/refresh
+    oauth_data = {'refreshToken' : refresh_token, 'grantType' : 'refresh_token'}
+    oauth_request = requests.post('https://adminapi.glovoapp.com/oauth/refresh', json = oauth_data)
+    #print(oauth_request.ok)
+    if oauth_request.ok:
+        access_token = oauth_request.json()['accessToken']
+        oauth = {'authorization' : access_token}
+        #print("Token refreshed")
+        logger.info('Access Token Refreshed')
+    else:
+        print(f"Token NOT refreshed -> {oauth_request.content}")
+        logger.info(f'Access Token NOT Refreshed -> {oauth_request.content}')
+        
+def print_bot_name():
+    print('\nStarting ' + Fore.MAGENTA + Style.BRIGHT + bot_name + Style.RESET_ALL + '\n')
 
 '''''''''''''''''''''''''''''End Init'''''''''''''''''''''''''''''
 
 '''''''''''''''''''''''''''Beginning bot'''''''''''''''''''''''''''
-'''Part 1: Set mode'''
-#set_import_mode() sets the import mode based on user's input
-#if user enters a Store ID -> import_mode = 'single'  for downloading only a single menu
-#if user enters a store name -> import_mode = 'multiple' for downlaoding the menus of all the store IDs of the partner
-def set_import_mode():
-    global import_mode, partner
-    partner = input('\nInsert a Store ID or a Store Name for beginning import\n')
-    if partner.isdigit():
-        import_mode = 'single'
-    else:
-        import_mode = 'multiple'
-
-'''functions for mode = "multiple"'''
-#get_cities() makes a list of all cities of a country
-#necessary for avoiding download menu of other countries when partner is in multiple countries            
+'''Part 0: Set import mode'''
+#custom for stores_request(): get all cities for admin query related to AM's country
 def get_cities():
     global cities
     while True:
-        country = input('Insert your country code (eg. IT, ES, AR):\n').upper().strip()
-        #making api requests at /admin/cities
+        #country = input('Insert your country code (eg. IT, ES, AR):\n').upper().strip() -> already in json credentials
         url = 'https://adminapi.glovoapp.com/admin/cities'
-        r = requests.get(url, headers = {'authorization' : access_token})
-        #converting json response to panda dataframe
+        r = requests.get(url, headers = oauth)
         df_cities = pd.read_json(json.dumps(r.json()))
         try:
             json_list_country = df_cities.loc[df_cities['code']==country,['cities']].values.item()
@@ -124,43 +123,92 @@ def get_cities():
         string.append(f"cities={i['code']}&")
     cities = ''.join(string)
 
-#admin_stores_request() finds all the stores of a partner in a certain country
-def admin_stores_request():
-    global df_admin, partner
-    get_cities()
-    #by default: var 'errore' = 0 and var 'partner' = the one inserted in the beginning.
-    errore = 0
-    #if user makes mistake or smt goes wrong: var errore +=1 and user can re-write var partner.
+def check_query_input(partner):
+    global q_input
+    if partner.isdigit():
+        q_input = 'id'
+    else:
+        q_input = 'name'
+
+def set_mode_id():
+    global mode
+    mode = 'single'
+
+def set_mode_name():
+    global df_import, mode
     while True:
-        if errore > 0:
-            partner = input('Insert the Store Name to import:\n')
-        #request @ /admin/stores?
+        df_import_copy = {}
+        choice = input('Insert the Store ID of the menu to import:\n').strip()
+        if ',' in choice: 
+            choice = choice.split(',')
+            l_choice = []
+            for c in choice:
+                try: l_choice.append(int(c))
+                except Exception: pass
+            if len(l_choice) == 0:
+                print(f'No results found for "{choice}", please try again')
+                continue
+            else:
+                mode = 'multiple'
+                df_import_copy = df_import.loc[df_import.loc[:,'id'].isin(l_choice)]
+                if df_import_copy.index.size < 1:
+                    print(f'No results found for "{choice}", please try again')
+                    continue
+                print(df_import_copy)
+                print('\nThe bot will import the above Store\'s menu:')
+        elif choice.isdigit():
+            mode = 'single'
+            df_import_copy = df_import.loc[df_import.loc[:,'id'] == int(choice)]
+            print(df_import_copy)
+            print('\nThe bot will import the above Store\'s menu:')
+        elif choice.lower() == 'all':
+            mode = 'all'
+            print(df_import_copy)
+            print('\nThe bot will import ALL the Store\'s menu:')
+        else:
+            print(f'Unable to process "{choice}", please try again')
+            continue
+        conferma = input('Continue? [yes]/[no]\t')
+        if conferma in ['yes','ye','y','si']:
+            df_import = df_import_copy.copy()
+            break
+
+#show a dataframe of all the stores (AM can then copy the ID of the city he is interested in and proceed with the creation)
+def stores_request():
+    global df_import
+    get_cities()
+    #search stores on admin
+    while True:
+        partner = input('Insert a Store Name or Store ID to import:\n').strip()
+        check_query_input(partner)
         url = f'https://adminapi.glovoapp.com/admin/stores?{cities}limit=500&offset=0'
-        params = {'query' : partner}
-        r = requests.get(url, headers  = {'authorization' : access_token}, params = params)
+        parameters = {'query' : partner}
+        r = requests.get(url, headers  = oauth, params = parameters)
         if r.ok is False:
             print(f'There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
-            errore += 1
         else:
             try:
                 list_raw = r.json()['stores']
                 df_admin = pd.read_json(json.dumps(list_raw))
-                df_admin['name'] = df_admin['name'].str.strip()
-                df_admin = df_admin[df_admin['name'] == partner].reset_index(drop = True)
+                df_admin.loc[:,'name'] = df_admin['name'].str.strip()
+                if q_input == 'name':
+                    df_admin = df_admin.loc[df_admin.loc[:,'name'] == partner].reset_index(drop = True)
             except KeyError:
                print(f'There was a problem while searching for store {partner} on Admin.\nPlease try again. (If problem persists, close bot and try again)')
-               errore += 1
             else:
                 if df_admin.index.size < 1:
-                    print(f'Could not find any results for store {partner} on Admin.\nMake sure spelling is correct. (If problem persists, close bot and try again)')
-                    errore += 1
+                    print(f'Could not find any results for store {partner} on Admin.\n'
+                          f'Maybe you meant one of the following: \n{set(df_admin["name"].to_list())}\n')
                 else:
-                    print(df_admin[['name','cityCode','id']])
-                    confirm = input('All the menu of the Store IDs above will be converted to excel\nContinue [yes]/[no]:\t').lower().strip()
-                    if confirm in ["yes","y","ye","si"]:
-                        break
+                    df_import = df_admin[['name','cityCode','id']]
+                    df_import.rename({'cityCode':'city'}, axis = 1, inplace = True)
+                    #df_import.loc[:,'status'] = ['' for _ in range(len(df_import.index))]
+                    print(df_import)
+                    if q_input == 'id':
+                        set_mode_id()
                     else:
-                        errore += 1
+                        set_mode_name()
+                    break
 
 '''Part 2: main() part & all relative functions'''
 #main() -> series of functions for importing one store id into an Excel file
@@ -179,7 +227,7 @@ def check_storeid(partner):
         #requests @ admin/stores?
         url = f'https://adminapi.glovoapp.com/admin/stores?limit=100&offset=0'
         params = {'query' : storeid}
-        r = requests.get(url, headers  = {'authorization' : access_token}, params = params)
+        r = requests.get(url, headers  = oauth, params = params)
         if r.ok is False: 
             print('Store not on Admin. Please insert a valid Store Id\n(If error repeats, consider closing the program and start again)')
             ntrials += 1
@@ -192,9 +240,9 @@ def check_storeid(partner):
             else:
                 store_cityCode = r.json()['stores'][0]['cityCode']
                 excel_name = f'{store_name}_{store_cityCode}.xlsx'
-                print(f'\n{store_name} - {store_cityCode} ({storeid}) found in Admin')
+                #print(f'\n{store_name} - {store_cityCode} ({storeid}) found in Admin')
                 #ask for confirmation if mode = 'single'. Else no need of confirmation.
-                if import_mode == 'single':
+                if mode == 'single':
                     confirm_check_storeid = input(f"Menu of {store_name} - {store_cityCode} ({storeid}) will be imported and stored into '{excel_name}'\n\nContinue [yes]/[no]:\t").lower().strip()
                     if confirm_check_storeid in ["yes","y","ye","si"]: 
                         logger.info(f"Importing menu of store {store_name} - {store_cityCode} ({storeid})")
@@ -204,13 +252,14 @@ def check_storeid(partner):
                 else:
                     print(f"Menu of {store_name} - {store_cityCode} ({storeid}) will be will be imported and stored into '{excel_name}'\n")
                     break
+    
 #function2: check if menu is empty
 #Returns 'True' if a menu has no collection to import
 def check_if_empty():
     global empty
     #requests @ admin/stores/{storeid}/collections
     url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections'
-    r = requests.get(url, headers = {'authorization' : access_token})
+    r = requests.get(url, headers = oauth)
     collection_js = r.json()
     if collection_js == []:
         print('Menu is empty. Nothing to import')
@@ -219,7 +268,7 @@ def check_if_empty():
 #function3: create output directory   
 def create_output_dir():
     global output_path
-    output_path = os.path.join(dir, store_name)
+    output_path = os.path.join(cwd, store_name)
     try: os.mkdir(output_path)
     except Exception: pass
 
@@ -229,7 +278,7 @@ def add_ons_import():
     #get all attribute groups & attributes info of storeid 
     #requests @ admin/attribute_groups/search?storeId={storeid}&query= 
     url = f'https://adminapi.glovoapp.com/admin/attribute_groups/search?storeId={storeid}&query='
-    r = requests.get(url, headers = {'authorization' : access_token})
+    r = requests.get(url, headers = oauth)
     attrib_info = r.json()
     #dataframe 'df_addons' creation
     df_addons = pd.DataFrame(columns = ["Add-On Name","Min Selection","Max Selection", "Multiple Selection", "Add-On ID","Attribute","Price", "Attribute ID", "Active"])
@@ -258,7 +307,7 @@ def add_ons_import():
 def get_prod_externalId(shared_dic, productID):
     #get a prod external ID with requests @ admin/products/{productID}
     url = f'https://adminapi.glovoapp.com/admin/products/{productID}'
-    r_id = requests.get(url, headers = {'authorization':access_token})
+    r_id = requests.get(url, headers = oauth)
     shared_dic[productID] = r_id.json()['externalId']
 
 #fucntion6bis: use (max -1) number of cpu cores: every CPU in use increases speed by 1x
@@ -276,7 +325,7 @@ def id_dict_creation():
     #step1: get the list of all product's id 
     #requests @ admin/stores/{storeid}/collections for getting collection json to parse
     url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections'
-    r = requests.get(url, headers = {'authorization' : access_token})
+    r = requests.get(url, headers = oauth)
     collection_js = r.json()
     print('Retrieving attributes external Ids')
     #parsing collection json
@@ -284,7 +333,7 @@ def id_dict_creation():
         collectionId = collection['id']
         #requests @ admin/stores/{storeid}/collections/{collectionId}/sections for getting section json to parse
         url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections/{collectionId}/sections'
-        r = requests.get(url, headers = {'authorization' : access_token})
+        r = requests.get(url, headers = oauth)
         section_js = r.json()
         id_dict_list = []
         #parsing section json to get prod info
@@ -350,7 +399,7 @@ def prod_import():
     global df_prods, prod
     #step1: import collections
     url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections'
-    r = requests.get(url, headers = {'authorization' : access_token})
+    r = requests.get(url, headers = oauth)
     collections = r.json()[0]['collections']
     #collectionId_list = [_['id'] for _ in (collection_js[0]['collections'])]  
     #step2: create columns for dataframe 'df_prods'
@@ -360,7 +409,7 @@ def prod_import():
     for collection in collections:
         collectionId = collection['id']
         url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections/{collectionId}/sections'
-        r = requests.get(url, headers = {'authorization' : access_token})
+        r = requests.get(url, headers = oauth)
         sections = r.json()
         for section in sections:
             print(f'Creating section {section["name"]}')
@@ -480,7 +529,7 @@ def check_images():
                 im_mod = list(l)
             ###end multiprocessing Pool###   
             '''
-            ###with multiprocessing### -> accelarates process by 5x (crashes on Windows)
+            ###with multiprocessing### 
             with Manager() as manager: 
                 l = manager.list()
                 processes = []
@@ -492,15 +541,15 @@ def check_images():
                     process_django.join()
                 im_mod = list(l)
             ###end multiprocessing###
-            
+            '''
             if len(im_mod) == 0: print(f'\nNo new image to dowload')
             else: print(f'\nImages folder of {store_name} updated')
-            '''
+            
 #function main(): dowload a single store ID menu and convert it to an excel file
-def main(partner):
+def main(lima):
     global empty
     empty = False
-    check_storeid(partner)
+    check_storeid(lima)
     check_if_empty()
     if empty: 
         pass
@@ -513,7 +562,8 @@ def main(partner):
         save_to_excel()
         check_images()
         t1 = datetime.datetime.now()
-        print(f"\n\nMenu of {store_name}-{store_cityCode} {(storeid)} successfully imported to Excel in {(t1-t0).seconds} seconds")
+        print(f"\n\nMenu of {store_name}-{store_cityCode} {(storeid)} successfully imported to Excel in {(t1-t0).seconds} seconds\n")
+        df_import.at[(df_import.loc[df_import.loc[:,'id'] == lima].index[0]),'status'] = 'Imported'
 
 '''''''''''''''''''''''''''''End Bot'''''''''''''''''''''''''''''
 
@@ -521,20 +571,11 @@ def main(partner):
 if __name__ == '__main__':
     '''Init Procedural code'''
     set_path()
-    login_check()
     logger_start()
+    login_check()
     refresh()
     '''Bot code'''
-    set_import_mode()
-    if import_mode == 'single':
-        main(partner)
-    elif import_mode == 'multiple':
-        admin_stores_request()
-        for partner in df_admin['id']:
-            main(partner)
-        print(f'All {store_name} Store IDs menu have been imported.')
-    else:
-        print('Something went wrong')
-        sys.exit(0)
-
-
+    stores_request()
+    for lima in df_import['id']:
+        main(lima)
+        print(df_import)
