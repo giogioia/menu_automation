@@ -317,6 +317,7 @@ def cores():
         return 1
     else:
         return (cpu_count() - 1)
+        #return 8
 
 #function6: create dictionary with products' iDs
 #as products external IDs can  not be retreive from product list, we need to call each products' api and get external its external id
@@ -348,11 +349,11 @@ def id_dict_creation():
         get_prod_externalId(shared_dic, productID)
     id_dict = shared_dic
     ###end linear procedure###
-    
+    '''
     ###using multiprocessing Pool###
     with Manager() as manager:
         shared_dic = manager.dict()
-        pool = Pool()
+        pool = Pool(cores())
         for productID in tqdm(id_dict_list):
             pool.apply_async(get_prod_externalId, args = (shared_dic, productID,))
         pool.close()
@@ -373,7 +374,7 @@ def id_dict_creation():
         #print(shared_dic)
         id_dict = dict(shared_dic)
     ###using multiprocessing process###
-    
+    '''
 #function7: return clean image name for 'Image Ref' column
 #custom for function8
 def image_name(ProductName, ImageID):
@@ -521,7 +522,7 @@ def check_images():
             ###with multiprocessing Pool###
             with Manager() as manager:
                 l = manager.list()
-                pool = Pool(10)
+                pool = Pool(cores())
                 for nu in df_prods.index:
                     pool.apply_async(image_download, args = (nu,l,))
                 pool.close()

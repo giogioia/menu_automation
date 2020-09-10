@@ -465,8 +465,8 @@ def cores():
     if cpu_count() <  2:
         return 1
     else:
-        #return (cpu_count() - 1)
-        return 8
+        return (cpu_count() - 1)
+        #return 8
 #function5: attributes creation
 #parse through all the attributes and trigger function attrib_check()
 def attrib_creation():
