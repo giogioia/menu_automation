@@ -11,6 +11,7 @@ import logging
 import requests
 import pandas as pd
 import datetime
+import time
 import sys
 import os
 from get_new_token import  *
@@ -20,6 +21,7 @@ import json
 import string
 from multiprocessing import Manager, Pool, Process, cpu_count
 from colorama import Fore, Style
+import concurrent.futures
 
 bot_name = 'Menu Import Bot'
 
@@ -189,8 +191,9 @@ def stores_request():
         else:
             try:
                 list_raw = r.json()['stores']
-                df_admin = pd.read_json(json.dumps(list_raw))
-                df_admin.loc[:,'name'] = df_admin['name'].str.strip()
+                df_admin_raw = pd.read_json(json.dumps(list_raw))
+                df_admin_raw.loc[:,'name'] = df_admin_raw['name'].str.strip()
+                df_admin = df_admin_raw.copy()
                 if q_input == 'name':
                     df_admin = df_admin.loc[df_admin.loc[:,'name'] == partner].reset_index(drop = True)
             except KeyError:
@@ -198,7 +201,7 @@ def stores_request():
             else:
                 if df_admin.index.size < 1:
                     print(f'Could not find any results for store {partner} on Admin.\n'
-                          f'Maybe you meant one of the following: \n{set(df_admin["name"].to_list())}\n')
+                          f'Maybe you meant one of the following: \n{set(df_admin_raw["name"].to_list())}\n')
                 else:
                     df_import = df_admin[['name','cityCode','id']]
                     df_import = df_import.rename({'cityCode':'city'}, axis = 1)
@@ -307,7 +310,8 @@ def get_prod_externalId(shared_dic, productID):
     url = f'https://adminapi.glovoapp.com/admin/products/{productID}'
     r_id = requests.get(url, headers = oauth)
     shared_dic[productID] = r_id.json()['externalId']
-
+    print(shared_dic[productID],'=',r_id.json()['externalId'])
+    
 #fucntion6bis: use (max -1) number of cpu cores: every CPU in use increases speed by 1x
 #custom for multiprocessing Pool ->  use all cpu cores - 1 to avoid freezing operating system
 def cores():
@@ -340,30 +344,36 @@ def id_dict_creation():
             for prod in section['products']:
                 id_dict_list.append(prod['id'])
     #step2: parse 'id_dict_list' (all products' IDs) to call each product's api and get each external id
+    ##########Benginning Multithreading/Multiprocessing part
     '''
-    ###using linear procedure###
+    ###using linear procedure### -> slow but stable 
+    start =  time.perf_counter()
     shared_dic = {}
-    for productID in tqdm(id_dict_list):
+    for productID in id_dict_list:
         get_prod_externalId(shared_dic, productID)
     id_dict = shared_dic
+    finish =  time.perf_counter()
     ###end linear procedure###
-    '''
-    ###using multiprocessing Pool###
+    
+    ###using multiprocessing Pool### -> fast and stable for high starting time on Windows
+    start =  time.perf_counter()
     with Manager() as manager:
         shared_dic = manager.dict()
-        pool = Pool(cores())
+        pool = Pool(20)
         for productID in id_dict_list:
             pool.apply_async(get_prod_externalId, args = (shared_dic, productID,))
         pool.close()
         pool.join()
         id_dict = dict(shared_dic)
+    finish =  time.perf_counter()
     ###end multiprocessing Pool###  
-    '''
-    ###using multiprocessing process###
+    
+    ###using multiprocessing process### -> very fast, not so stable and very high starting time on Windows
+    start =  time.perf_counter()
     with Manager() as manager:
         shared_dic = manager.dict()
         processes = []
-        for productID in tqdm(id_dict_list):
+        for productID in id_dict_list:
             pro = Process(target = get_prod_externalId, args = (shared_dic, productID))
             pro.start()
             processes.append(pro)
@@ -371,8 +381,35 @@ def id_dict_creation():
             process.join()
         #print(shared_dic)
         id_dict = dict(shared_dic)
-    ###using multiprocessing process###
+    finish =  time.perf_counter()
+    ###end multiprocessing process###
+    
+    ###using multithreading### -> crashes due to race condition: shared memory makes a mess (tried using Lock() but became too slow)
+    lock = threading.Lock()
+    start =  time.perf_counter()
+    shared_dic = {}
+    threads = []
+    for productID in id_dict_list:
+        pro = threading.Thread(target = get_prod_externalId, args = (shared_dic, productID, lock))
+        pro.start()
+        threads.append(pro)
+    for thread in threads:
+        thread.join()
+    id_dict = dict(shared_dic)
+    finish =  time.perf_counter()
+    ###end multithreading###
     '''
+    ###using multithreading concurrent futures### -> 
+    import concurrent.futures
+    shared_dic = {}
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        for productID in id_dict_list:
+            args = [shared_dic, productID]
+            executor.submit(lambda p: get_prod_externalId(*p), args)
+    id_dict = shared_dic
+    ###end multiprocessing process###
+    ##########End Multithreading/Multiprocessing part
+    
 #function7: return clean image name for 'Image Ref' column
 #custom for function8
 def image_name(ProductName, ImageID):
@@ -429,9 +466,8 @@ def prod_import():
     df_prods.loc[:,'Product Description'].replace('nan','', inplace = True)
     #Delete Add-Ons empty columns
     AddOn_columns = df_prods.columns[df_prods.columns.to_series().str.contains('Add-On')].to_list()
-    [df_prods.columns.get_loc(_) for _ in AddOn_columns]
     AddOn_columns.append('Super Collection')
-    for col in AddOn_columns:
+    for col in AddOn_columns[3:]: #starting at index 3 so to leave al least 3 add-ons columns in any situation
         if df_prods[col].isnull().all(): df_prods.drop(columns = col, inplace = True)
     #print(f"\nCreated Products sheet in Excel file '{store_name}_{store_cityCode}.xlsx'")
     list(df_prods)
@@ -459,6 +495,7 @@ def save_to_excel():
         writer.sheets['Products'].set_column('C:D',25)
         writer.sheets['Products'].set_column('E:E',70)
         writer.sheets['Products'].set_default_row(20)
+        writer.sheets['Products'].freeze_panes(1, 0)
         try: writer.sheets['Products'].data_validation(f'{min(col_addons)}2:{max(col_addons)}1000',{"validate":"list","source":"='Add-Ons'!$A$2:$A$1000"})
         except ValueError: pass
         df_addons.to_excel(writer, sheet_name = 'Add-Ons', index = False)
@@ -466,6 +503,7 @@ def save_to_excel():
         writer.sheets['Add-Ons'].set_column('A:A',30)
         writer.sheets['Add-Ons'].set_column('F:F',50)
         writer.sheets['Add-Ons'].set_default_row(20)
+        writer.sheets['Add-Ons'].freeze_panes(1, 0)
         writer.sheets['Add-Ons'].data_validation('A1:A500',{'validate':'custom','value':'=COUNTIF($A$1:$A$500,A1)=1'})
     print(f"\nSuccesfully saved to excel @{os.path.relpath(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx'))}\n")
     
@@ -509,6 +547,7 @@ def check_images():
             pass
         finally:
             image_path = os.path.join(output_path,'Images')
+            ##########Benginning Multithreading/Multiprocessing part
             '''
             ###with linear code###
             l = []
@@ -516,7 +555,7 @@ def check_images():
                 image_download(nu,l)
             im_mod = l
             ###end linear code###
-            '''
+            
             ###with multiprocessing Pool###
             with Manager() as manager:
                 l = manager.list()
@@ -527,13 +566,13 @@ def check_images():
                 pool.join()
                 im_mod = list(l)
             ###end multiprocessing Pool###   
-            '''
+            
             ###with multiprocessing### 
             with Manager() as manager: 
                 l = manager.list()
                 processes = []
                 for nu in tqdm(df_prods.index):
-                    process =  Process(target = image_download, args = (nu,l))
+                    process =  Process(target = image_download, args = [nu,l])
                     process.start()
                     processes.append(process)
                 for process_django in processes:
@@ -541,6 +580,15 @@ def check_images():
                 im_mod = list(l)
             ###end multiprocessing###
             '''
+            ###with multithreading concurrent futures### 
+            l = []
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                for nu in (df_prods.index):
+                    args = [nu, l]
+                    executor.submit(lambda p: image_download(*p), args)
+            im_mod = l
+            ###end  multithreading concurrent futures###
+            ##########End Multithreading/Multiprocessing part
             if len(im_mod) == 0: print(f'\nNo new image to dowload')
             else: print(f'\nImages folder of {store_name} updated')
             
@@ -553,15 +601,15 @@ def main(lima):
     if empty: 
         pass
     else:
-        t0 = datetime.datetime.now()
+        start = time.perf_counter()
         create_output_dir()
         add_ons_import()
         id_dict_creation()
         prod_import()
         save_to_excel()
         check_images()
-        t1 = datetime.datetime.now()
-        print(f"\n\nMenu of {store_name}-{store_cityCode} {(storeid)} successfully imported to Excel in {(t1-t0).seconds} seconds\n")
+        finish = time.perf_counter()
+        print(f"\n\nMenu of {store_name}-{store_cityCode} {(storeid)} successfully imported to Excel in {round(finish-start,2)} seconds\n")
         df_import.at[(df_import.loc[df_import.loc[:,'id'] == lima].index[0]),'status'] = 'Imported'
 
 '''''''''''''''''''''''''''''End Bot'''''''''''''''''''''''''''''
@@ -573,8 +621,9 @@ if __name__ == '__main__':
     logger_start()
     login_check()
     refresh()
+    print_bot_name()
     '''Bot code'''
     stores_request()
     for lima in df_import['id']:
         main(lima)
-        print(df_import)
+    print(df_import)

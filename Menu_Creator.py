@@ -20,12 +20,13 @@ import os
 import os.path
 import numpy as np
 import string
+import shutil
+import json
+import concurrent.futures
 from tqdm import tqdm
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 from multiprocessing import Manager, Pool, Process, cpu_count
 from get_new_token import *
-import shutil
-import json
 from colorama import Fore, Style
 
 bot_name = 'Menu Creator Bot'
@@ -481,7 +482,7 @@ def attrib_creation():
         attrib_check(shared_list, i)
     temp_id_list = shared_list
     ###end linear code###
-    '''
+    
     ###with multiprocessing Pool###
     with Manager() as manager:
         shared_list = manager.list()
@@ -495,23 +496,15 @@ def attrib_creation():
         temp_id_list = list(shared_list)
     ###end multiprocessing Pool###
     '''
-    ###with multiprocessing###
-    with Manager() as manager:
-        shared_list = manager.list()
-        for _ in data_attrib.index:
-            shared_list.append("")
-        processes = []
+    ###with ThreadPoolExecutor###
+    shared_list = ['' for _ in data_attrib.index]
+    with concurrent.futures.ThreadPoolExecutor() as executor:
         for i in data_attrib.index:
-            #launch multiprocessing
-            pro = Process(target = attrib_check, args = (shared_list, i))
-            pro.start()
-            processes.append(pro)
-        for process in processes:
-            process.join()
-        #print(shared_list)
-        temp_id_list = list(shared_list)
-    ###end multiprocessing###
-    '''
+            args = [shared_list, i]
+            executor.submit(lambda p: attrib_check(*p), args)
+    temp_id_list = shared_list
+    ###end ThreadPoolExecutor###
+    
     #push fresh temp_id_list to dataframe
     data_attrib.loc[:, 'Attrib_real_Id'] = temp_id_list
     #fill empty Attrib_real_Id values -> duplicate attrib id will have empty attrib_real_id so we fill their attrib_real_id with the same value of their duplicate
@@ -571,15 +564,15 @@ def attrib_group_creation():
     url_get = f'https://adminapi.glovoapp.com/admin/attributes?storeId={storeid}'
     r = requests.get(url_get, headers = oauth)
     r_json = r.json()
+    ##########Benginning Multithreading/Multiprocessing part
     '''
     ###with linear###
     shared_list2 = ['' for _ in range(len(group_num))]
     for y in group_num:
         n = group_num.index(y)
         attrib_group_creation_function(shared_list2, y, r_json, n)
-        groupId_list = shared_list2
+    groupId_list = shared_list2
     ###end linear###
-    '''
     ###with multiprocessing Pool###
     with Manager() as manager:
         shared_list2 = manager.list()
@@ -594,24 +587,17 @@ def attrib_group_creation():
         groupId_list = list(shared_list2)
     ###end multiprocessing Pool###
     '''
-    ###with multiprocessing###
-    with multiprocessing.Manager() as manager:
-        shared_list2 = manager.list()
-        for _ in group_num:
-            shared_list2.append("")
-        processes = []
+    ###with ThreadPoolExecutor###
+    shared_list2 = ['' for _ in range(len(group_num))]
+    with concurrent.futures.ThreadPoolExecutor() as executor:
         for y in group_num:
             n = group_num.index(y)
-            #launch multiprocessing
-            proZ = multiprocessing.Process(target = attrib_group_creation_function, args = (shared_list2, y, r_json, n))
-            proZ.start()
-            processes.append(proZ)
-        for process in processes:
-            process.join()
-        print(shared_list2)
-        groupId_list = list(shared_list2)
-    ###end multiprocessing###
-    '''
+            args = [shared_list2, y, r_json, n] 
+            executor.submit(lambda p: attrib_group_creation_function(*p),  args)
+    groupId_list = shared_list2
+    ###end ThreadPoolExecutor###
+    ##########End Multithreading/Multiprocessing part
+    #saving attributes group IDs to dataframe
     for n_group_num in range(len(group_num)):
         data_attrib.loc[data_attrib['Add-On ID']==group_num[n_group_num], 'Attrib_real_Id'] = groupId_list[n_group_num]
 
@@ -717,15 +703,16 @@ def images_upload():
     print('\nChecking for new images to upload..')
     get_image_names()
     #uploading new images
+    ##########Benginning Multithreading/Multiprocessing part
     '''
-    ###using linear code###
+    ###linear code###
     l_of_im = ['' for _ in range(len(data_prod.index))]
     for im in data_prod.index:
         image_upload_function(im, l_of_im)
     listOfImages = l_of_im
     ###end linear code###
-    '''
-    ###using nultiprocessing pool###
+    
+    ###multiprocessing pool###
     with Manager() as manager:
         l_of_im = manager.list()
         pool = Pool(cores())
@@ -738,21 +725,15 @@ def images_upload():
         listOfImages = list(l_of_im)
     ###end nultiprocessing pool###
     '''
-    ###using multiprocessing###
-    with multiprocessing.Manager() as manager:
-        l_of_im = manager.list()
-        processes = []
+    ###ThreadPoolExecutor###
+    l_of_im = ['' for _ in range(len(data_prod.index))]
+    with concurrent.futures.ThreadPoolExecutor() as executor:
         for im in data_prod.index:
-            l_of_im.append('')
-        for im in data_prod.index:
-            pro = multiprocessing.Process(target = image_upload_function, args = [im, l_of_im])
-            pro.start()
-            processes.append(pro)
-        for process in processes:
-            process.join()
-        listOfImages = list(l_of_im)
-    ###end multiprocessing###
-    '''
+            args = [im, l_of_im]
+            executor.submit(lambda p: image_upload_function(*p), args)
+    listOfImages = l_of_im
+    ###end ThreadPoolExecutor###
+    ##########End Multithreading/Multiprocessing
     #saving new image ID to dataframe
     for im in data_prod.index:
         im_ref = data_prod.at[im,'Image Ref']
@@ -797,6 +778,7 @@ def saveback_df():
         writer.sheets['Products'].set_column('C:D',25)
         writer.sheets['Products'].set_column('E:E',70)
         writer.sheets['Products'].set_default_row(20)
+        writer.sheets['Products'].freeze_panes(1, 0)
         try: writer.sheets['Products'].data_validation(f'{min(col_addons)}2:{max(col_addons)}1000',{"validate":"list","source":"='Add-Ons'!$A$2:$A$1000"})
         except ValueError: pass
         data_attrib_saveback.to_excel(writer, sheet_name = 'Add-Ons', index = False)
@@ -804,6 +786,7 @@ def saveback_df():
         writer.sheets['Add-Ons'].set_column('A:A',30)
         writer.sheets['Add-Ons'].set_column('F:F',50)
         writer.sheets['Add-Ons'].set_default_row(20)
+        writer.sheets['Add-Ons'].freeze_panes(1, 0)
         writer.sheets['Add-Ons'].data_validation('A1:A500',{'validate':'custom','value':'=COUNTIF($A$1:$A$500,A1)=1'})
     print(f"\nClean 'Products' & 'Add-Ons' sheets saved back to original Excel {excel_name}")
 
@@ -914,6 +897,7 @@ def product_creation():
         else: print(f"NOT created collection {collection} -> {post}-{post.content}")
         #create sections
         section_list = list(dict.fromkeys(list(temp_df3.loc[:,'Section'].dropna())))
+        ##########Beginning Multithreading/Multiprocessing
         '''
         ###using linear code###
         multipro = False
@@ -922,7 +906,7 @@ def product_creation():
             n = section_list.index(section)
             section_creation(n, shared_sectionId_list, temp_df3, collectionId, section)
         ###end linear code###
-        '''
+        
         ###using nultiprocessing pool###
         multipro = True
         with Manager() as manager:
@@ -938,24 +922,17 @@ def product_creation():
             zombie_sectionId_list = list(shared_sectionId_list)
         ###end nultiprocessing pool###
         '''
-        ###using multiprocessing###
+        ###ThreadExecutorPool###
         multipro = True
-        with multiprocessing.Manager() as manager:
-            shared_sectionId_list = manager.list()
-            for _ in range(len(section_list)):
-                shared_sectionId_list.append('')
-            processes2 = []
+        shared_sectionId_list = ['' for _ in range(len(section_list))]
+        with concurrent.futures.ThreadPoolExecutor() as executor:
             for section in section_list:
                 n = section_list.index(section)
-                pro2 = multiprocessing.Process(target = section_creation, args = [n, shared_sectionId_list, temp_df3, collectionId, section])
-                pro2.start()
-                processes2.append(pro2)
-            for process2 in processes2:
-               process2.join()
-            print(shared_sectionId_list)
-            zombie_sectionId_list = list(shared_sectionId_list)
-        ###using multiprocessing###
-        '''
+                args = [n, shared_sectionId_list, temp_df3, collectionId, section]
+                executor.submit(lambda p: section_creation(*p), args)
+        zombie_sectionId_list = shared_sectionId_list
+        ###end ThreadExecutorPooll###
+        ##########End Multithreading/Multiprocessing
         if multipro is True:
             #arrange section positions -> only needed if multiprocessing in use
             print('\nOrdering sections positions')
@@ -970,7 +947,7 @@ def product_creation():
 #function main(): create an entire from an Excel file
 def main(niamey):
     df_to_repository()
-    t0 = datetime.datetime.now()
+    start = time.perf_counter()
     del_menu()
     import_df_attrib()
     attrib_creation()
@@ -979,8 +956,8 @@ def main(niamey):
     images_upload()
     saveback_df()
     product_creation()
-    t1 = datetime.datetime.now()
-    print(f"\nMenu of store id {store_name} - {store_cityCode} ({storeid}) successfully created from '{excel_name}' in {(t1-t0).seconds} seconds")
+    finish = time.perf_counter()
+    print(f"\nMenu of store id {store_name} - {store_cityCode} ({storeid}) successfully created from '{excel_name}' in {round(finish-start,2)} seconds")
     df_creator.loc[niamey,'status'] = 'Created'
     
 '''''''''''''''''''''''''''''End Bot'''''''''''''''''''''''''''''
