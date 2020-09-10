@@ -155,16 +155,16 @@ def set_mode_name():
                     print(f'No results found for "{choice}", please try again')
                     continue
                 print(df_import_copy)
-                print('\nThe bot will import the above Store\'s menu:')
+                print('\nThe bot will import the above Store\'s menu')
         elif choice.isdigit():
-            mode = 'single'
+            mode = 'mingle'
             df_import_copy = df_import.loc[df_import.loc[:,'id'] == int(choice)]
             print(df_import_copy)
-            print('\nThe bot will import the above Store\'s menu:')
+            print('\nThe bot will import the above Store\'s menu')
         elif choice.lower() == 'all':
             mode = 'all'
             print(df_import_copy)
-            print('\nThe bot will import ALL the Store\'s menu:')
+            print('\nThe bot will import ALL the Store\'s menu')
         else:
             print(f'Unable to process "{choice}", please try again')
             continue
@@ -201,12 +201,10 @@ def stores_request():
                           f'Maybe you meant one of the following: \n{set(df_admin["name"].to_list())}\n')
                 else:
                     df_import = df_admin[['name','cityCode','id']]
-                    df_import.rename({'cityCode':'city'}, axis = 1, inplace = True)
+                    df_import = df_import.rename({'cityCode':'city'}, axis = 1)
                     #df_import.loc[:,'status'] = ['' for _ in range(len(df_import.index))]
                     print(df_import)
-                    if q_input == 'id':
-                        set_mode_id()
-                    else:
+                    if q_input == 'name':
                         set_mode_name()
                     break
 
@@ -215,11 +213,11 @@ def stores_request():
 
 #function1: check store ID 
 #receives a store ID (var 'partner') and checks if it's present on Admin (usefull if mode = 'single')
-def check_storeid(partner):
+def check_storeid(lima):
     global storeid, store_name, store_cityCode, excel_name
     #by default var 'ntrials' = 0 and var 'storeid' = input var 'partner'
     ntrials = 0
-    storeid = partner
+    storeid = lima
     #if user makes mistake or smt goes wrong: var 'ntrials' +=1 and user can re-write var 'storeid'.
     while True:
         if ntrials > 0:
@@ -227,7 +225,7 @@ def check_storeid(partner):
         #requests @ admin/stores?
         url = f'https://adminapi.glovoapp.com/admin/stores?limit=100&offset=0'
         params = {'query' : storeid}
-        r = requests.get(url, headers  = oauth, params = params)
+        r = requests.get(url, headers = oauth, params = params)
         if r.ok is False: 
             print('Store not on Admin. Please insert a valid Store Id\n(If error repeats, consider closing the program and start again)')
             ntrials += 1
@@ -242,7 +240,7 @@ def check_storeid(partner):
                 excel_name = f'{store_name}_{store_cityCode}.xlsx'
                 #print(f'\n{store_name} - {store_cityCode} ({storeid}) found in Admin')
                 #ask for confirmation if mode = 'single'. Else no need of confirmation.
-                if mode == 'single':
+                if q_input == 'id':
                     confirm_check_storeid = input(f"Menu of {store_name} - {store_cityCode} ({storeid}) will be imported and stored into '{excel_name}'\n\nContinue [yes]/[no]:\t").lower().strip()
                     if confirm_check_storeid in ["yes","y","ye","si"]: 
                         logger.info(f"Importing menu of store {store_name} - {store_cityCode} ({storeid})")
@@ -252,7 +250,7 @@ def check_storeid(partner):
                 else:
                     print(f"Menu of {store_name} - {store_cityCode} ({storeid}) will be will be imported and stored into '{excel_name}'\n")
                     break
-    
+
 #function2: check if menu is empty
 #Returns 'True' if a menu has no collection to import
 def check_if_empty():
@@ -330,13 +328,13 @@ def id_dict_creation():
     collection_js = r.json()
     print('Retrieving attributes external Ids')
     #parsing collection json
+    id_dict_list = []
     for collection in (collection_js[0]['collections']):
         collectionId = collection['id']
         #requests @ admin/stores/{storeid}/collections/{collectionId}/sections for getting section json to parse
         url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections/{collectionId}/sections'
         r = requests.get(url, headers = oauth)
         section_js = r.json()
-        id_dict_list = []
         #parsing section json to get prod info
         for section in section_js:
             for prod in section['products']:
@@ -354,7 +352,7 @@ def id_dict_creation():
     with Manager() as manager:
         shared_dic = manager.dict()
         pool = Pool(cores())
-        for productID in tqdm(id_dict_list):
+        for productID in id_dict_list:
             pool.apply_async(get_prod_externalId, args = (shared_dic, productID,))
         pool.close()
         pool.join()
