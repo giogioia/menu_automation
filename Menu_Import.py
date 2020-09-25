@@ -10,7 +10,6 @@ Created on Tue Aug 11 04:21:44 2020
 import logging
 import requests
 import pandas as pd
-import datetime
 import time
 import sys
 import os
@@ -19,7 +18,7 @@ import numpy as np
 from tqdm import tqdm
 import json
 import string
-from multiprocessing import Manager, Pool, Process, cpu_count
+#from multiprocessing import Manager, Pool, Process, cpu_count
 from colorama import Fore, Style
 import concurrent.futures
 
@@ -310,7 +309,7 @@ def get_prod_externalId(shared_dic, productID):
     url = f'https://adminapi.glovoapp.com/admin/products/{productID}'
     r_id = requests.get(url, headers = oauth)
     shared_dic[productID] = r_id.json()['externalId']
-    print(shared_dic[productID],'=',r_id.json()['externalId'])
+    #print(shared_dic[productID],'=',r_id.json()['externalId'])
     
 #fucntion6bis: use (max -1) number of cpu cores: every CPU in use increases speed by 1x
 #custom for multiprocessing Pool ->  use all cpu cores - 1 to avoid freezing operating system
@@ -403,7 +402,7 @@ def id_dict_creation():
     import concurrent.futures
     shared_dic = {}
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        for productID in id_dict_list:
+        for productID in tqdm(id_dict_list):
             args = [shared_dic, productID]
             executor.submit(lambda p: get_prod_externalId(*p), args)
     id_dict = shared_dic
@@ -441,15 +440,15 @@ def prod_import():
     #step2: create columns for dataframe 'df_prods'
     df_prods = pd.DataFrame(columns = ['Super Collection', 'Collection', 'Section', 'Product Name', 'Product Description', 'Product Price','Product ID', 'Add-On 1', 'Add-On 2', 'Add-On 3', 'Add-On 4','Add-On 5','Add-On 6','Add-On 7','Add-On 8','Add-On 9','Add-On 10','Add-On 11','Add-On 12','Add-On 13','Add-On 14','Add-On 15','Add-On 16','Active', 'Image Ref','Image ID'])
     #top-down approach for getting all info structured: parsing collections > sections > products
-    print('Creating "Products" sheet')
+    print('Importing "Products"')
     for collection in collections:
         collectionId = collection['id']
         url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections/{collectionId}/sections'
         r = requests.get(url, headers = oauth)
         sections = r.json()
         for section in sections:
-            print(f'Creating section {section["name"]}')
-            for prod in tqdm(section['products']):
+            print(f'Importing section {section["name"]}')
+            for prod in (section['products']):
                 #add 'None' values to empty 'Add-On's columns in case the products has fewer than 16 add ons
                 for _ in range(len(prod['attributeGroups'])-1,16):  
                     prod['attributeGroups'].append({'id': None, 'name': None})
@@ -518,7 +517,7 @@ def image_download(nu,l):
     elif ImID == None or ImID == np.nan or ImID == '' or ImID == 'nan':
         pass
     elif os.path.isfile(os.path.join(image_path,f"{ImRef}.jpg")):
-        print(f"Image {str(df_prods.at[nu,'Product Name'])}.jpg already exists")
+        #print(f"Image {str(df_prods.at[nu,'Product Name'])}.jpg already exists")
         pass
     else:
         l.append('ImRef')
@@ -627,3 +626,4 @@ if __name__ == '__main__':
     for lima in df_import['id']:
         main(lima)
     print(df_import)
+    time.sleep(5)

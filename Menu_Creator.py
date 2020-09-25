@@ -25,7 +25,7 @@ import json
 import concurrent.futures
 from tqdm import tqdm
 from requests_toolbelt.multipart.encoder import MultipartEncoder
-from multiprocessing import Manager, Pool, Process, cpu_count
+#from multiprocessing import Manager, Pool, Process, cpu_count
 from get_new_token import *
 from colorama import Fore, Style
 
@@ -171,6 +171,7 @@ def set_mode_name():
             print('\nThe bot will modify the above Store\'s menu:')
         elif choice.lower() == 'all':
             mode = 'all'
+            df_creator_copy = df_creator.copy()
             print(df_creator_copy)
             print('\nThe bot will modify ALL the Store\'s menu:')
         else:
@@ -197,8 +198,9 @@ def stores_request():
         else:
             try:
                 list_raw = r.json()['stores']
-                df_admin = pd.read_json(json.dumps(list_raw))
-                df_admin.loc[:,'name'] = df_admin['name'].str.strip()
+                df_admin_raw = pd.read_json(json.dumps(list_raw))
+                df_admin_raw.loc[:,'name'] = df_admin_raw['name'].str.strip()
+                df_admin = df_admin_raw.copy()
                 if q_input == 'name':
                     df_admin = df_admin.loc[df_admin.loc[:,'name'] == partner].reset_index(drop = True)
             except KeyError:
@@ -206,10 +208,10 @@ def stores_request():
             else:
                 if df_admin.index.size < 1:
                     print(f'Could not find any results for store {partner} on Admin.\n'
-                          f'Maybe you meant one of the following: \n{set(df_admin["name"].to_list())}\n')
+                          f'Maybe you meant one of the following: \n{set(df_admin_raw["name"].to_list())}\n')
                 else:
                     df_creator = df_admin[['name','cityCode','id']]
-                    df_creator.rename({'cityCode':'city'}, axis = 1, inplace = True)
+                    df_creator = df_creator.rename({'cityCode':'city'}, axis = 1)
                     #df_creator.loc[:,'status'] = ['' for _ in range(len(df_creator.index))]
                     print(df_creator)
                     if q_input == 'id':
@@ -369,9 +371,9 @@ def import_df_attrib():
         try:
             data_attrib.at[_,'Price'] = float(data_attrib.at[_,'Price'])
         except ValueError:
-            data_attrib.at[_,'Price'] = 0              
+            data_attrib.at[_,'Price'] = 0
     #cleaning column 'Active'
-    data_attrib.loc[:,'Active'] = [False if _ is False else True for _ in range(len(data_attrib))]
+    data_attrib.loc[:,'Active'] = [False if _ == False else True for _ in data_attrib.loc[:,'Active']]
     #over-write column 'Attribute ID': allocate int starting at 1000
     #If two attribs have same name & price, insert same attrib id
     attrib_n_price_list = [f"{data_attrib.at[_,'Attribute']}&{data_attrib.at[_,'Price']}" for _ in range(len(data_attrib.index))]
@@ -452,7 +454,7 @@ def attrib_check(shared_list,i):
         if findex < i:
             try:
                 #data_attrib.at[i, 'Attrib_real_Id'] =  data_attrib.at[findex, 'Id'] -> using list instead
-                shared_list[i] =  shared_list[findex]
+                shared_list[i] = shared_list[findex]
             except Exception:
                 shared_list[i] = None
             finally:
@@ -625,7 +627,7 @@ def import_df_prod():
         except ValueError:
             data_prod.at[_,'Product Price'] = 0  
     #cleaning column 'Active'
-    data_prod.loc[:,'Active'] = [False if _ is False else True for _ in range(len(data_prod))]
+    data_prod.loc[:,'Active'] = [False if _ == False else True for _ in (data_prod.loc[:,'Active'])]
     #over-write column 'Product ID'
     for _ in data_prod.index:
         data_prod.at[_,'Product ID'] = _
@@ -639,7 +641,9 @@ def import_df_prod():
             break
     #strip add-ons columns
     for _ in asociados_list:
-        data_prod.loc[:,f'Add-On {_}'] = data_prod.loc[:,f'Add-On {_}'].str.strip()    
+        if data_prod.loc[:,f'Add-On {_}'].isnull().all() is False:
+            try: data_prod.loc[:,f'Add-On {_}'] = data_prod.loc[:,f'Add-On {_}'].str.strip()
+            except Exception: pass
     ##create new dataframe for save the above back to orignal excel##
     data_prod_saveback = data_prod.copy()
     #forward fill
