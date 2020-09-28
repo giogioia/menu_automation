@@ -8,20 +8,16 @@ Created on Sun Jul 19 13:53:48 2020
 
 #stuff to import
 from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
 import time
 import sys
 from webdriver_manager.chrome import ChromeDriverManager
 import os
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
 import json
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 import requests
 import logging
-from getpass import getpass
-#import logging
 
 bot_name  = "get_new_token"
 
@@ -34,7 +30,7 @@ def set_path():
     global dir, login_path
     #if sys has attribute _MEIPASS then script launched by bundled exe.
     if getattr(sys, '_MEIPASS', False):
-        dir = os.path.dirname(os.path.dirname(sys._MEIPASS))
+        dir = os.path.dirname(sys.executable)
     else:
         dir = os.getcwd()
     #defining paths
@@ -57,23 +53,20 @@ def logger_start():
 
 '''Initiations functions'''
 def first_login():
-    print(f"\n\nHello, you are about to get a new token for using all of POPS IT's bots.")
+    print(f"\n\nHello, you are about to get your new personal Admin access token.")
     time.sleep(4)
     print(f"\nYour token will be saved in a file called 'my_personal_token'.")
     time.sleep(4)
-    print("\nREMEMBER: do NOT share the 'my_personal_token' file with anyone except your-self."
-          "\nThe token is a personal key that identifies all your actions on Admin, therefore keep in mind that any usage of any bots is visible on Admin's log.")
+    print("\nRemember: do NOT share the 'my_personal_token' file with anyone except your-self."
+          "\nThe token is a personal key that identifies all your actions on Admin, therefore any usage of the bots is visible on Admin's log.")
     while True:
         time.sleep(8)
-        print("\nFor starting, you'll have to log into Admin:")
+        print("\nFor starting, you will have to log into Admin:")
         global country
         country = input('Insert your country code (eg. IT, ES, AR):\n').upper().strip()
         global glovo_email
         glovo_email = input("Insert your glovo email:\n").strip()
-        global password
-        print('Your password will not be saved or stored anywhere. For more info on how the bot works, visit the documetion.')
-        password = getpass("Insert your password: (PW will not be displayed. Type it and press ENTER)\n")
-        print(f"\nemail = {glovo_email}\npassword = {len(password)*'*'}\n")
+        print(f"\nemail = {glovo_email}\ncountry = {country}")
         confirm = input("Confirm data? [yes]/[no]\n").lower().strip()
         if confirm in ["yes","y","ye","si"]:
             welcome_name = glovo_email[:glovo_email.find("@")].replace("."," ").title()
@@ -82,7 +75,7 @@ def first_login():
             break
         else: continue
     #nprint('First login completed')
-
+'''
 def first_login_check():
     #Check/get login data
     print("Checking login data")
@@ -101,55 +94,48 @@ def first_login_check():
         else: first_login()
     else:
         first_login()
-
+'''
 def launch_Chrome():
     time.sleep(2)
     print('Launching Chrome..')
     time.sleep(2)
-    print('\nPlease do NOT touch anything while the browser runs.'
-          '\nIf browser does not diseapper after 15 seconds. Close it and restart this bot.')
-    time.sleep(2)
+    print('\nPlease enter your Glovo credentials and wait a few moments while bot gets you token.')
     global browser, wait
     caps = DesiredCapabilities.CHROME
     caps['goog:loggingPrefs'] = {'performance': 'ALL'}
     browser = webdriver.Chrome(desired_capabilities = caps, executable_path=ChromeDriverManager().install())
-    browser.implicitly_wait(6)
-    wait = WebDriverWait(browser, 13)
+    browser.implicitly_wait(12)
+    wait = WebDriverWait(browser, 600)
     initiate_google_login()
     
 def initiate_google_login():
-    browser.get('https://accounts.google.com/')
+    browser.get("https://accounts.google.com/")
     print("\nAccessing your Google/Glovo account")
-    time.sleep(1)
-    wait.until(EC.presence_of_element_located((By.ID, "identifierId")))
-    time.sleep(0.5)
-    g_username=browser.find_element_by_id("identifierId")
-    time.sleep(0.5)
-    g_username.send_keys(glovo_email,Keys.RETURN)
-    time.sleep(1)
-    wait.until(EC.presence_of_element_located((By.NAME, "password")))
-    time.sleep(1)
-    g_password=browser.find_element_by_name("password")
-    time.sleep(0.5)
-    g_password.send_keys(password,Keys.RETURN)
-    print("Signed in!")
-    browser.get("https://beta-admin.glovoapp.com/content")
-    time.sleep(2)
+    time.sleep(10)
+    wait.until(EC.title_is("Google Account"))
     logger.info('Logged with Google')
+    time.sleep(1)
+    print("Signed in!")
+    browser.get("https://beta-admin.glovoapp.com/search")
+    wait.until(EC.title_is("Glovo Admin"))
 
 '''Get google token from network log'''
 def get_g_token():  
     global google_token, browser_log
-    browser_log = browser.get_log('performance')
-    for i in browser_log:
-        try:
-            google_token = json.loads(json.loads(i['message'])['message']['params']['request']['postData'])['googleToken']
-        except Exception:
-            continue
-        else:
+    while True:
+        browser_log = browser.get_log('performance')
+        for i in browser_log:
+            try:
+                google_token = json.loads(json.loads(i['message'])['message']['params']['request']['postData'])['googleToken']
+            except Exception:
+                continue
+        try: google_token
+        except Exception: continue
+        else: 
             logger.info(f'Got Google Token: {google_token}')
             browser.close()
-     
+            break
+        
         
 '''Part2: Post google token to admin to get access key'''
 '''Send post request to admin api to receive access and refresh token'''
@@ -173,8 +159,7 @@ def save_token():
                  'country' : country}
     with open(login_path, "w") as dst_file:
         json.dump(json_data, dst_file)
-    print(f'\n\nCongrats!\nYour Refresh Token has been saved to {login_path}.\nIf the token stops working, execute this bot again.')
-    logger.info(f'Refresh Token saved in {login_path}')
+    print(f'\n\nCongrats!\nYour Refresh Token has been saved to {login_path}.')
 
 '''procedural code'''
 def get_token():
@@ -183,10 +168,10 @@ def get_token():
     #Start logger
     logger_start()
     #Check login data
-    first_login_check()
+    first_login()
     #Launching browser
     launch_Chrome()
-    #Get google token  
+    #Get google token
     get_g_token()
     #Post google token
     post_g_token()
