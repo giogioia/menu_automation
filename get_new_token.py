@@ -18,6 +18,7 @@ import json
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 import requests
 import logging
+from getpass import getpass
 
 bot_name  = "get_new_token"
 
@@ -65,10 +66,15 @@ def first_login():
         global country
         country = input('Insert your country code (eg. IT, ES, AR):\n').upper().strip()
         global glovo_email
-        glovo_email = input("Insert your glovo email:\n").strip()
+        glovo_email = input("Insert your Glovo/company email:\n").strip()
         print(f"\nemail = {glovo_email}\ncountry = {country}")
         confirm = input("Confirm data? [yes]/[no]\n").lower().strip()
         if confirm in ["yes","y","ye","si"]:
+            global profile
+            if '@glovoapp.com' not in glovo_email:
+                profile = 'outsider'
+            else: 
+                profile = 'insider'
             welcome_name = glovo_email[:glovo_email.find("@")].replace("."," ").title()
             print(f"\n\nWelcome {welcome_name}!\n\n")
             logger.info(f'Started by {welcome_name}')
@@ -151,11 +157,27 @@ def post_g_token():
     refresh_token = p.json()['refreshToken']
     logger.info(f'Received Refresh Token: {refresh_token}')
 
+def outsider_token():
+    print('You are usinga an external account')
+    time.sleep(2)
+    while True:
+        password = getpass('Please insert the passowrd you use to log in Glovo\'s Admin (CAUTION: your password will not appear on the screen. Type it then press ENTER.\n')
+        data = {"grantType":"password","username": glovo_email,"password":password}
+        p = requests.post('https://adminapi.glovoapp.com/oauth/operator_token', json = data)
+        if p.ok:
+            logger.info('Requested Token at https://adminapi.glovoapp.com/oauth/operator_token')
+            logger.info(f'Response is {p.ok}')
+            p.content
+            refresh_token = p.json()['refreshToken']
+            logger.info(f'Received Refresh Token: {refresh_token}')
+            break
+        else:
+            print('Your password is incorrect.\nPlease try again')
+
 def save_token():
     global json_data
     json_data = {'glovo_email' : glovo_email,
                  'refresh_token' : refresh_token,
-                 'google_token' : google_token,
                  'country' : country}
     with open(login_path, "w") as dst_file:
         json.dump(json_data, dst_file)
@@ -169,12 +191,16 @@ def get_token():
     logger_start()
     #Check login data
     first_login()
-    #Launching browser
-    launch_Chrome()
-    #Get google token
-    get_g_token()
-    #Post google token
-    post_g_token()
+    #insider vs outsider
+    if profile == 'insider':
+        #Launching browser
+        launch_Chrome()
+        #Get google token
+        get_g_token()
+        #Post google token
+        post_g_token()
+    if profile == 'outsider':
+        outsider_token()
     #Save token
     save_token()
     
