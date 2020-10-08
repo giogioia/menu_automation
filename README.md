@@ -1,4 +1,4 @@
-# menu_automation
+# MAT - Menu Automation Tool
 Python based application for automating content requests on Admin
 
 Menu_Import: Convert any menu on Admin to an Excel file + images folder
