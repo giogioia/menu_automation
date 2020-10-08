@@ -5,7 +5,7 @@ Menu_Import: Convert any menu on Admin to an Excel file + images folder
 - Avg. timespan: 10 seconds
 - Multi download enabled
 
-Menu_Creator: Create a complete menu on Admin from an Excel file + images folder
+Menu_Upload: Create a complete menu on Admin from an Excel file + images folder
 - Avg. timespan: 30 seconds
 - Multi upload enabled
 
