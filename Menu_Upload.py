@@ -377,7 +377,7 @@ def import_df_attrib():
     #over-write column 'Attribute ID': allocate int starting at 1000
     #If two attribs have same name & price, insert same attrib id
     attrib_n_price_list = [f"{data_attrib.at[_,'Attribute']}&{data_attrib.at[_,'Price']}" for _ in range(len(data_attrib.index))]
-    list_1000 = [_ for _ in range(1000,2000)]
+    list_1000 = [_ for _ in range(1000,5000)]
     for n in data_attrib.index:
         attrib_n_price = attrib_n_price_list[n]
         rambo_index = attrib_n_price_list.index(attrib_n_price)
@@ -783,7 +783,7 @@ def saveback_df():
         writer.sheets['Products'].set_column('E:E',70)
         writer.sheets['Products'].set_default_row(20)
         writer.sheets['Products'].freeze_panes(1, 0)
-        try: writer.sheets['Products'].data_validation(f'{min(col_addons)}2:{max(col_addons)}1000',{"validate":"list","source":"='Add-Ons'!$A$2:$A$1000"})
+        try: writer.sheets['Products'].data_validation(f'{min(col_addons)}2:{max(col_addons)}5000',{"validate":"list","source":"='Add-Ons'!$A$2:$A$5000"})
         except ValueError: pass
         data_attrib_saveback.to_excel(writer, sheet_name = 'Add-Ons', index = False)
         writer.sheets['Add-Ons'].set_column('B:Z',15)
@@ -984,6 +984,6 @@ if __name__ == '__main__':
             set_storeid_unique(nassau)
             main(nassau)
     print(df_creator)
-    time.sleep(5)
+    time.sleep(3)
         
         

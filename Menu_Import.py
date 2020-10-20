@@ -495,7 +495,7 @@ def save_to_excel():
         writer.sheets['Products'].set_column('E:E',70)
         writer.sheets['Products'].set_default_row(20)
         writer.sheets['Products'].freeze_panes(1, 0)
-        try: writer.sheets['Products'].data_validation(f'{min(col_addons)}2:{max(col_addons)}1000',{"validate":"list","source":"='Add-Ons'!$A$2:$A$1000"})
+        try: writer.sheets['Products'].data_validation(f'{min(col_addons)}2:{max(col_addons)}5000',{"validate":"list","source":"='Add-Ons'!$A$2:$A$5000"})
         except ValueError: pass
         df_addons.to_excel(writer, sheet_name = 'Add-Ons', index = False)
         writer.sheets['Add-Ons'].set_column('B:Z',15)

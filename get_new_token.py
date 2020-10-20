@@ -158,6 +158,7 @@ def post_g_token():
     logger.info(f'Received Refresh Token: {refresh_token}')
 
 def outsider_token():
+    global refresh_token
     print('You are usinga an external account')
     time.sleep(2)
     while True:
