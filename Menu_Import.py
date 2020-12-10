@@ -329,7 +329,7 @@ def id_dict_creation():
     url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections'
     r = requests.get(url, headers = oauth)
     collection_js = r.json()
-    print('Retrieving attributes external Ids')
+    print('Retrieving products external Ids')
     #parsing collection json
     id_dict_list = []
     for collection in (collection_js[0]['collections']):
@@ -424,48 +424,65 @@ def image_name(ProductName, ImageID):
 #function7 bis: return link of image for 'Image ID' column
 #custom for function8
 def image_link(ImageID):
-    if ImageID == None or ImageID == np.nan or ImageID == '' or ImageID== 'nan':
+    if ImageID == None or ImageID == np.nan or ImageID == '' or ImageID == 'nan':
         return None
     else:
         return f'https://res.cloudinary.com/glovoapp/f_auto,q_auto/{ImageID}'
-    
+     
+#super pic
+def super_image_link(super_image_id):
+    if super_image_id == None or super_image_id == np.nan or super_image_id == '' or super_image_id == 'nan':
+        return None
+    else:
+        url = f'https://adminapi.glovoapp.com/admin/collection_groups/{super_image_id}' 
+        r = requests.get(url, headers=oauth)
+        return f"https://res.cloudinary.com/glovoapp/f_auto,q_auto/{r.json()['imageServiceId']}"
+
 #function8: Create 'Products' sheet
 def prod_import():    
     global df_prods, prod
-    #step1: import collections
+    #step1: create columns for dataframe 'df_prods'
+    df_prods = pd.DataFrame(columns = ['Super Collection', 'Super Collection ImageRef', 'Collection', 'Section', 'Product Name', 'Product Description', 'Product Price','Product ID', 'Add-On 1', 'Add-On 2', 'Add-On 3', 'Add-On 4','Add-On 5','Add-On 6','Add-On 7','Add-On 8','Add-On 9','Add-On 10','Add-On 11','Add-On 12','Add-On 13','Add-On 14','Add-On 15','Add-On 16','Active', 'Image Ref','Image ID'])
+    print('Dowloading all products')
+    #step2: get supercollections
     url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections'
     r = requests.get(url, headers = oauth)
-    collections = r.json()[0]['collections']
-    #collectionId_list = [_['id'] for _ in (collection_js[0]['collections'])]  
-    #step2: create columns for dataframe 'df_prods'
-    df_prods = pd.DataFrame(columns = ['Super Collection', 'Collection', 'Section', 'Product Name', 'Product Description', 'Product Price','Product ID', 'Add-On 1', 'Add-On 2', 'Add-On 3', 'Add-On 4','Add-On 5','Add-On 6','Add-On 7','Add-On 8','Add-On 9','Add-On 10','Add-On 11','Add-On 12','Add-On 13','Add-On 14','Add-On 15','Add-On 16','Active', 'Image Ref','Image ID'])
-    #top-down approach for getting all info structured: parsing collections > sections > products
-    print('Importing "Products"')
-    for collection in collections:
-        collectionId = collection['id']
-        url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections/{collectionId}/sections'
-        r = requests.get(url, headers = oauth)
-        sections = r.json()
-        for section in sections:
-            print(f'Importing section {section["name"]}')
-            for prod in (section['products']):
-                #add 'None' values to empty 'Add-On's columns in case the products has fewer than 16 add ons
-                for _ in range(len(prod['attributeGroups'])-1,16):  
-                    prod['attributeGroups'].append({'id': None, 'name': None})
-                #fill in dataframe row by row
-                df_prods.loc[0 if pd.isnull(df_prods.index.max()) else df_prods.index.max() + 1] = [None, collection['name'].strip(), section['name'].strip(), prod['name'].strip(), prod['description'], prod['price'], id_dict.get(prod['id']), prod['attributeGroups'][0]['name'], prod['attributeGroups'][1]['name'], prod['attributeGroups'][2]['name'],prod['attributeGroups'][3]['name'],prod['attributeGroups'][4]['name'],prod['attributeGroups'][5]['name'],prod['attributeGroups'][6]['name'], prod['attributeGroups'][7]['name'], prod['attributeGroups'][8]['name'], prod['attributeGroups'][9]['name'], prod['attributeGroups'][10]['name'], prod['attributeGroups'][11]['name'], prod['attributeGroups'][12]['name'], prod['attributeGroups'][13]['name'],prod['attributeGroups'][14]['name'],prod['attributeGroups'][15]['name'],prod['enabled'], image_name(prod['name'].strip(), prod["image"]),image_link(prod["image"])]                
+    super_collections = r.json()
+    for super_collection in super_collections:
+        if super_collection["name"] != None:
+            print(f'* Dowloading Super Collection {super_collection["name"]}')
+        else: 
+            print('* Dowloading all sections')
+        collections = super_collection['collections']
+        #top-down approach for getting all info structured: parsing collections > sections > products
+        for collection in collections:
+            collectionId = collection['id']
+            url = f'https://adminapi.glovoapp.com/admin/stores/{storeid}/collections/{collectionId}/sections'
+            r = requests.get(url, headers = oauth)
+            sections = r.json()
+            for section in sections:
+                print(f'\t- Dowloading section {section["name"]}')
+                for prod in (section['products']):
+                    #add 'None' values to empty 'Add-On's columns in case the products has fewer than 16 add ons
+                    for _ in range(len(prod['attributeGroups'])-1,16):  
+                        prod['attributeGroups'].append({'id': None, 'name': None})
+                    #fill in dataframe row by row
+                    df_prods.loc[0 if pd.isnull(df_prods.index.max()) else df_prods.index.max() + 1] = [super_collection['name'], super_image_link(super_collection['id']), collection['name'].strip(), section['name'].strip(), prod['name'].strip(), prod['description'], prod['price'], id_dict.get(prod['id']), prod['attributeGroups'][0]['name'], prod['attributeGroups'][1]['name'], prod['attributeGroups'][2]['name'],prod['attributeGroups'][3]['name'],prod['attributeGroups'][4]['name'],prod['attributeGroups'][5]['name'],prod['attributeGroups'][6]['name'], prod['attributeGroups'][7]['name'], prod['attributeGroups'][8]['name'], prod['attributeGroups'][9]['name'], prod['attributeGroups'][10]['name'], prod['attributeGroups'][11]['name'], prod['attributeGroups'][12]['name'], prod['attributeGroups'][13]['name'],prod['attributeGroups'][14]['name'],prod['attributeGroups'][15]['name'],prod['enabled'], image_name(prod['name'].strip(), prod["image"]),image_link(prod["image"])]                
     ##clean dataframe
-    #clean all duplicated values for  readability in 'Super Collection' and 'Collection' columns
-    df_prods.loc[df_prods.duplicated(subset = ['Super Collection','Collection']), ['Super Collection','Collection']] = None
+    #clean all duplicated values for readability in 'Super Collection' and 'Collection' columns
+    df_prods.loc[df_prods.duplicated(subset = ['Super Collection']), ['Super Collection']] = None
+    df_prods.loc[df_prods.duplicated(subset = ['Collection']), ['Collection']] = None
+    df_prods.loc[df_prods.duplicated(subset = ['Super Collection ImageRef']), ['Super Collection ImageRef']] = None
     #try format 'Product ID' column as int
     df_prods.loc[:,'Product ID'] = pd.to_numeric(df_prods.loc[:,'Product ID'], downcast= "integer", errors= "ignore")
     #format Product Price column as float 
     df_prods.loc[:,'Product Price'] = pd.to_numeric(df_prods.loc[:,'Product Price'], errors= "coerce")
     #replace 'nan' desription with actual nan
     df_prods.loc[:,'Product Description'].replace('nan','', inplace = True)
-    #Delete Add-Ons empty columns
+    #Delete target empty columns
     AddOn_columns = df_prods.columns[df_prods.columns.to_series().str.contains('Add-On')].to_list()
     AddOn_columns.append('Super Collection')
+    AddOn_columns.append('Super Collection ImageRef')
     for col in AddOn_columns[3:]: #starting at index 3 so to leave al least 3 add-ons columns in any situation
         if df_prods[col].isnull().all(): df_prods.drop(columns = col, inplace = True)
     #print(f"\nCreated Products sheet in Excel file '{store_name}_{store_cityCode}.xlsx'")
@@ -492,7 +509,10 @@ def save_to_excel():
         df_prods.to_excel(writer, sheet_name = 'Products', index_label = 'Index')
         writer.sheets['Products'].set_column('B:Z',20)
         writer.sheets['Products'].set_column('C:D',25)
-        writer.sheets['Products'].set_column('E:E',70)
+        if 'Super Collection' in list(df_prods):
+            writer.sheets['Products'].set_column('F:F',70)
+        else:
+            writer.sheets['Products'].set_column('E:E',70)
         writer.sheets['Products'].set_default_row(20)
         writer.sheets['Products'].freeze_panes(1, 0)
         try: writer.sheets['Products'].data_validation(f'{min(col_addons)}2:{max(col_addons)}5000',{"validate":"list","source":"='Add-Ons'!$A$2:$A$5000"})
@@ -503,7 +523,7 @@ def save_to_excel():
         writer.sheets['Add-Ons'].set_column('F:F',50)
         writer.sheets['Add-Ons'].set_default_row(20)
         writer.sheets['Add-Ons'].freeze_panes(1, 0)
-        writer.sheets['Add-Ons'].data_validation('A1:A500',{'validate':'custom','value':'=COUNTIF($A$1:$A$500,A1)=1'})
+        writer.sheets['Add-Ons'].data_validation('A1:A5000',{'validate':'custom','value':'=COUNTIF($A$1:$A$5000,A1)=1'})
     print(f"\nSuccesfully saved to excel @{os.path.relpath(os.path.join(output_path,f'{store_name}_{store_cityCode}.xlsx'))}\n")
     
 #function10: download single image
@@ -527,7 +547,7 @@ def image_download(nu,l):
         with open(os.path.join(image_path,f"{ImRef}.jpg"), 'wb') as f:
             f.write(r.content)
         print(f"Image {ImRef}.jpg downloaded")
-
+        
 #function11: images checker
 def check_images():
     global image_path
@@ -590,7 +610,8 @@ def check_images():
             ##########End Multithreading/Multiprocessing part
             if len(im_mod) == 0: print(f'\nNo new image to dowload')
             else: print(f'\nImages folder of {store_name} updated')
-            
+           
+
 #function main(): dowload a single store ID menu and convert it to an excel file
 def main(lima):
     global empty

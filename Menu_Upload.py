@@ -441,7 +441,7 @@ def attrib_creation_function(shared_list,i):
     if put.ok:
         print(f"Created Attribute {i} with ext.id {str(data_attrib.at[i,'Attribute ID'])}")
     else:
-        print(f"NOT created attribute {i}: {put}{put.content}")    
+        print(f"NOT created attribute {i}: {put}{put.content}")
 
 #function4: check if duplicate attributes have been already created
 #custom for function5: 
@@ -646,6 +646,10 @@ def import_df_prod():
             except Exception: pass
     ##create new dataframe for save the above back to orignal excel##
     data_prod_saveback = data_prod.copy()
+    #drop Super collection column if empty or forward fill it
+    if 'Super Collection' in list(data_prod):
+        if data_prod['Super Collection'].isnull().all(): data_prod.drop(columns = 'Super Collection', inplace = True)
+        else: data_prod.loc[:,'Super Collection'].fillna(method = 'ffill', inplace = True)
     #forward fill
     data_prod.loc[:,'Collection'].fillna(method = 'ffill', inplace = True)
     #create column collectionId
@@ -780,7 +784,10 @@ def saveback_df():
         data_prod_saveback.to_excel(writer, sheet_name = 'Products', index_label = 'Index')
         writer.sheets['Products'].set_column('B:Z',20)
         writer.sheets['Products'].set_column('C:D',25)
-        writer.sheets['Products'].set_column('E:E',70)
+        if 'Super Collection' in list(data_prod):
+            writer.sheets['Products'].set_column('F:F',70)
+        else:
+            writer.sheets['Products'].set_column('E:E',70)
         writer.sheets['Products'].set_default_row(20)
         writer.sheets['Products'].freeze_panes(1, 0)
         try: writer.sheets['Products'].data_validation(f'{min(col_addons)}2:{max(col_addons)}5000',{"validate":"list","source":"='Add-Ons'!$A$2:$A$5000"})
@@ -791,7 +798,7 @@ def saveback_df():
         writer.sheets['Add-Ons'].set_column('F:F',50)
         writer.sheets['Add-Ons'].set_default_row(20)
         writer.sheets['Add-Ons'].freeze_panes(1, 0)
-        writer.sheets['Add-Ons'].data_validation('A1:A500',{'validate':'custom','value':'=COUNTIF($A$1:$A$500,A1)=1'})
+        writer.sheets['Add-Ons'].data_validation('A1:A5000',{'validate':'custom','value':'=COUNTIF($A$1:$A$5000,A1)=1'})
     print(f"\nClean 'Products' & 'Add-Ons' sheets saved back to original Excel {excel_name}")
 
 ###Product creation -> functions 14,15,16,18###
@@ -875,79 +882,146 @@ def section_creation(n, shared_sectionId_list, temp_df3, collectionId, section):
     for q in temp_df3_bis.index:
         prod_creation_function(q, sectionId, temp_df3_bis)
 
+'''
+upload pic for Super collection
+def super_pic_upload():
+    url = 'https://api.cloudinary.com/v1_1/glovoapp/upload'
+    mp_encoder = MultipartEncoder(
+                    fields={'folder': 'CollectionGroups',
+                            'upload_preset': 'arj9awzq',
+                            'source': 'uw',
+                            'api_key': None,
+                            'file': (os.path.relpath(im_path), open(os.path.relpath(im_path), 'rb'), 'text/plain')})
+    header = {'Content-Type': mp_encoder.content_type}
+    r = requests.post(url, data=mp_encoder, headers = header)
+'''  
+ 
 #function18: create products 
 def product_creation():
     global attrGroup_dict
-    print('\nStage 3: Product creation')
-    #get attribute groups info & create dict with attrib groups names and attrib groups IDs
-    url = f'https://adminapi.glovoapp.com/admin/attribute_groups?storeId={storeid}'
-    attrib_groups = requests.get(url, headers = oauth)
-    attrGroup_NameList = [attrGroup['name'] for attrGroup in attrib_groups.json()]
-    attrGroup_IdList = [attrGroup['id'] for attrGroup in attrib_groups.json()]
-    attrGroup_dict = dict(zip(attrGroup_NameList,attrGroup_IdList))
-    #Start with collections: get list of unique collection
-    collection_list = list(dict.fromkeys(list(data_prod.loc[:,'Collection'].dropna())))
-    #iterate over collection list
-    for collection in collection_list:
-        #position = collection_list.index(collection)
-        temp_df3 = data_prod.loc[data_prod['Collection']==collection].reset_index(drop = True).copy()
-        #create collection
-        url = 'https://adminapi.glovoapp.com/admin/collections'
-        payload = {"name": collection, "storeId": storeid}
-        post = requests.post(url, headers = oauth, json = payload)
-        data_prod.loc[data_prod['Collection']==collection,'CollectionId'] = post.json()
-        collectionId = post.json()
-        if post.ok: print(f"Created collection {collection}")
-        else: print(f"NOT created collection {collection} -> {post}-{post.content}")
-        #create sections
-        section_list = list(dict.fromkeys(list(temp_df3.loc[:,'Section'].dropna())))
-        ##########Beginning Multithreading/Multiprocessing
-        '''
-        ###using linear code###
-        multipro = False
-        shared_sectionId_list = ['' for _ in range(len(section_list))]
-        for section in section_list:
-            n = section_list.index(section)
-            section_creation(n, shared_sectionId_list, temp_df3, collectionId, section)
-        ###end linear code###
-        
-        ###using nultiprocessing pool###
-        multipro = True
-        with Manager() as manager:
-            shared_sectionId_list = manager.list()
-            pool = Pool(cores())
-            for _ in range(len(section_list)):
-                shared_sectionId_list.append('')
+    if 'Super Collection' in list(data_prod):
+        print('\nStage 3: Product uploading')
+        #get attribute groups info & create dict with attrib groups names and attrib groups IDs
+        url = f'https://adminapi.glovoapp.com/admin/attribute_groups?storeId={storeid}'
+        attrib_groups = requests.get(url, headers = oauth)
+        attrGroup_NameList = [attrGroup['name'] for attrGroup in attrib_groups.json()]
+        attrGroup_IdList = [attrGroup['id'] for attrGroup in attrib_groups.json()]
+        attrGroup_dict = dict(zip(attrGroup_NameList,attrGroup_IdList))
+        #Start with Super Collections: get list of unique 
+        super_collection_list = list(dict.fromkeys(list(data_prod.loc[:,'Super Collection'].dropna())))
+        #iterate over supercollections
+        for super_collection in super_collection_list:
+            print(f'***Uploading Super Collection {super_collection}')
+            temp_df_super = data_prod.loc[data_prod['Super Collection']==super_collection].reset_index(drop = True).copy()
+            #upload super collection pictures
+            #create super collection
+            url = 'https://adminapi.glovoapp.com/admin/collection_groups'
+            data = {"id":None,"name":super_collection,"iconServiceId":None,"imageServiceId":None,"storeId":storeid,"type":"group"}
+            superp = requests.post(url, headers = oauth, json = data)
+            super_collection_id = superp.json()
+            #continue with collections: get list of unique collections
+            collection_list = list(dict.fromkeys(list(temp_df_super.loc[:,'Collection'].dropna())))
+            #iterate over collection list
+            for collection in collection_list:
+                #position = collection_list.index(collection)
+                temp_df3 = temp_df_super.loc[temp_df_super['Collection']==collection].reset_index(drop = True).copy()
+                #create collection
+                url = 'https://adminapi.glovoapp.com/admin/collections'
+                payload = {"id": None, "name": collection, "collectionGroupId": super_collection_id, "groupId": super_collection_id, "storeId": storeid}
+                post = requests.post(url, headers = oauth, json = payload)
+                data_prod.loc[(data_prod['Collection']==collection)&(data_prod['Super Collection']==super_collection),'CollectionId'] = post.json()
+                collectionId = post.json()
+                if post.ok: print(f"\nCreated collection {collection}")
+                else: print(f"NOT created collection {collection} -> {post}-{post.content}")
+                #create sections
+                section_list = list(dict.fromkeys(list(temp_df3.loc[:,'Section'].dropna())))
+                ##########Beginning Multithreading/Multiprocessing
+                '''
+                ###using linear code###
+                multipro = False
+                shared_sectionId_list = ['' for _ in range(len(section_list))]
+                for section in section_list:
+                    n = section_list.index(section)
+                    section_creation(n, shared_sectionId_list, temp_df3, collectionId, section)
+                ###end linear code###
+                '''
+                ###ThreadExecutorPool###
+                multipro = True
+                shared_sectionId_list = ['' for _ in range(len(section_list))]
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    for section in section_list:
+                        n = section_list.index(section)
+                        args = [n, shared_sectionId_list, temp_df3, collectionId, section]
+                        executor.submit(lambda p: section_creation(*p), args)
+                zombie_sectionId_list = shared_sectionId_list
+                ###end ThreadExecutorPooll###
+                ##########End Multithreading/Multiprocessing
+                if multipro is True:
+                    #arrange section positions -> only needed if multiprocessing in use
+                    print('\nOrdering sections positions')
+                    for secId in tqdm(zombie_sectionId_list):
+                        position = zombie_sectionId_list.index(secId)
+                        url = f'https://adminapi.glovoapp.com/admin/collectionsections/{secId}/changeCollection'
+                        payload = {"position" : position, "collectionId" : collectionId}
+                        put_pos = requests.put(url, headers = oauth, json = payload)
+                        if put_pos.ok is False: print(f'Section {secId} PROBLEM when moved to P {position}')
+                    print('Ordering sections positions completed')
+    else:
+        print('\nStage 3: Product creation')
+        #get attribute groups info & create dict with attrib groups names and attrib groups IDs
+        url = f'https://adminapi.glovoapp.com/admin/attribute_groups?storeId={storeid}'
+        attrib_groups = requests.get(url, headers = oauth)
+        attrGroup_NameList = [attrGroup['name'] for attrGroup in attrib_groups.json()]
+        attrGroup_IdList = [attrGroup['id'] for attrGroup in attrib_groups.json()]
+        attrGroup_dict = dict(zip(attrGroup_NameList,attrGroup_IdList))
+        #get list of unique collections
+        collection_list = list(dict.fromkeys(list(data_prod.loc[:,'Collection'].dropna())))
+        #iterate over collection list
+        for collection in collection_list:
+            #position = collection_list.index(collection)
+            temp_df3 = data_prod.loc[data_prod['Collection']==collection].reset_index(drop = True).copy()
+            #create collection
+            url = 'https://adminapi.glovoapp.com/admin/collections'
+            payload = {"name": collection, "storeId": storeid}
+            post = requests.post(url, headers = oauth, json = payload)
+            data_prod.loc[(data_prod['Collection']==collection),'CollectionId'] = post.json()
+            collectionId = post.json()
+            if post.ok: print(f"Created collection {collection}")
+            else: print(f"NOT created collection {collection} -> {post}-{post.content}")
+            #create sections
+            section_list = list(dict.fromkeys(list(temp_df3.loc[:,'Section'].dropna())))
+            ##########Beginning Multithreading/Multiprocessing
+            '''
+            ###using linear code###
+            multipro = False
+            shared_sectionId_list = ['' for _ in range(len(section_list))]
             for section in section_list:
                 n = section_list.index(section)
-                pool.apply_async(section_creation, args = (n, shared_sectionId_list, temp_df3, collectionId, section,))
-            pool.close()
-            pool.join()
-            zombie_sectionId_list = list(shared_sectionId_list)
-        ###end nultiprocessing pool###
-        '''
-        ###ThreadExecutorPool###
-        multipro = True
-        shared_sectionId_list = ['' for _ in range(len(section_list))]
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            for section in section_list:
-                n = section_list.index(section)
-                args = [n, shared_sectionId_list, temp_df3, collectionId, section]
-                executor.submit(lambda p: section_creation(*p), args)
-        zombie_sectionId_list = shared_sectionId_list
-        ###end ThreadExecutorPooll###
-        ##########End Multithreading/Multiprocessing
-        if multipro is True:
-            #arrange section positions -> only needed if multiprocessing in use
-            print('\nOrdering sections positions')
-            for secId in tqdm(zombie_sectionId_list):
-                position = zombie_sectionId_list.index(secId)
-                url = f'https://adminapi.glovoapp.com/admin/collectionsections/{secId}/changeCollection'
-                payload = {"position" : position, "collectionId" : collectionId}
-                put_pos = requests.put(url, headers = oauth, json = payload)
-                if put_pos.ok is False: print(f'Section {secId} PROBLEM when moved to P {position}')
-            print('Ordering sections positions completed')
-        
+                section_creation(n, shared_sectionId_list, temp_df3, collectionId, section)
+            ###end linear code###
+            '''
+            ###ThreadExecutorPool###
+            multipro = True
+            shared_sectionId_list = ['' for _ in range(len(section_list))]
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                for section in section_list:
+                    n = section_list.index(section)
+                    args = [n, shared_sectionId_list, temp_df3, collectionId, section]
+                    executor.submit(lambda p: section_creation(*p), args)
+            zombie_sectionId_list = shared_sectionId_list
+            ###end ThreadExecutorPooll###
+            ##########End Multithreading/Multiprocessing
+            if multipro is True:
+                #arrange section positions -> only needed if multiprocessing in use
+                print('\nOrdering sections positions')
+                for secId in tqdm(zombie_sectionId_list):
+                    position = zombie_sectionId_list.index(secId)
+                    url = f'https://adminapi.glovoapp.com/admin/collectionsections/{secId}/changeCollection'
+                    payload = {"position" : position, "collectionId" : collectionId}
+                    put_pos = requests.put(url, headers = oauth, json = payload)
+                    if put_pos.ok is False: print(f'Section {secId} PROBLEM when moved to P {position}')
+                print('Ordering sections positions completed')
+
 #function main(): create an entire from an Excel file
 def main(niamey):
     df_to_repository()
