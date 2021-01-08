@@ -1,5 +1,6 @@
 # MAT - Menu Automation Tool
-Python based application for automating content requests on Admin
+# Glovo Partners Operations
+Python based application for automating content requests on Glovo's Admin
 
 Menu_Import: Converts any menu on Admin to an Excel file + images folder
 - Avg. timespan: 10 seconds
