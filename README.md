@@ -13,3 +13,5 @@ Menu_Upload: Creates a complete menu on Admin from an Excel file + images folder
 Menu_Copy: Copies a Store menu to all the others Store’s ID of the Store
 - Avg. timespan: 0.1 seconds per Store ID 
 - Multi export enabled
+
+User will be required to log into Glovo's Admin
